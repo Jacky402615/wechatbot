@@ -747,8 +747,8 @@ EOF 失败路径（`if (!turnFinished) {` 块内，`expiredAskProcs` 判定**之
 
 ## Checkpoint B（Tasks 4–5 后）
 
-- [ ] `bun run typecheck` 通过（types.ts 扩员后无类型漂移）
-- [ ] `bun test`（全量）通过——W2 的超时/ask 过期/收割测试不受新哨兵影响
+- [x] `bun run typecheck` 通过（types.ts 扩员后无类型漂移）
+- [x] `bun test`（全量）通过——W2 的超时/ask 过期/收割测试不受新哨兵影响
 
 ### Task 6: AgentHandler 分派集成 + createGateway 接线（gate / 命令 / welcome / feedback）
 
@@ -764,7 +764,7 @@ EOF 失败路径（`if (!turnFinished) {` 块内，`expiredAskProcs` 判定**之
   - handler deps 增 `access: AccessGate; mentionName?: string`
   - `AgentManagerPort` 增 `abortChat(chatKey: string): { status: 'stopped' | 'stopping' | 'idle'; dropped: number }`、`resetSession(chatKey: string): void`、`inFlightCount(): number`、`activeSessionCount(): number`
 
-- [ ] **Step 1: Write the failing test**（追加进 `tests/unit/agent-handler.test.ts`；先给 FakeTransport 补 `welcomes`、FakeManager 补新方法——见 Step 3 桩说明）
+- [x] **Step 1: Write the failing test**（追加进 `tests/unit/agent-handler.test.ts`；先给 FakeTransport 补 `welcomes`、FakeManager 补新方法——见 Step 3 桩说明）
 
 ```ts
 import { writeFileSync } from 'node:fs';   // 追加到既有 import 区（mkdirSync/mkdtempSync 已有）
@@ -939,8 +939,8 @@ test('W3 日志契约（R2-F5）：feedback/拒绝入日志但不记内容；wel
 });
 ```
 
-- [ ] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/unit/agent-handler.test.ts` Expected: FAIL（AgentHandler deps 无 access——构造类型错）
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/unit/agent-handler.test.ts` Expected: FAIL（AgentHandler deps 无 access——构造类型错）
+- [x] **Step 3: Write the minimal implementation**
 
 测试桩增员与 fixture 迁移（`tests/unit/agent-handler.test.ts`）——FakeTransport 的 welcome/connectionStatus 桩已在 Task 4 落盘，本任务补：
 
@@ -1118,7 +1118,7 @@ import { TURN_ABORTED_ERROR } from '../agent/manager';
   }
 ```
 
-- [ ] **Step 4: Wire createGateway + 既有集成测试基线（同 commit，R3-F2）**
+- [x] **Step 4: Wire createGateway + 既有集成测试基线（同 commit，R3-F2）**
 
 `src/gateway.ts` createGateway——SessionStore 构造之后：
 
@@ -1140,8 +1140,8 @@ import { TURN_ABORTED_ERROR } from '../agent/manager';
   writeFileSync(join(ws, '.bot', 'access.json'), JSON.stringify({ approved: ['u1'] }) + '\n');
 ```
 
-- [ ] **Step 5: Run it and verify it PASSES（全量门）** — Run: `bun run typecheck && bun test` Expected: PASS（agent-handler 新旧用例、W2 集成 AC1–AC5 因 setup 补 approved 回绿、gateway 接线编译面全过）
-- [ ] **Step 6: Commit** — `git add src/handlers/agent.ts src/gateway.ts tests/unit/agent-handler.test.ts tests/integration/agent.test.ts && git commit -m "W3: inbound gate (frame-scoped access snapshot, group policy, commands) + layered welcome + gateway wiring"`
+- [x] **Step 5: Run it and verify it PASSES（全量门）** — Run: `bun run typecheck && bun test` Expected: PASS（agent-handler 新旧用例、W2 集成 AC1–AC5 因 setup 补 approved 回绿、gateway 接线编译面全过）
+- [x] **Step 6: Commit** — `git add src/handlers/agent.ts src/gateway.ts tests/unit/agent-handler.test.ts tests/integration/agent.test.ts && git commit -m "W3: inbound gate (frame-scoped access snapshot, group policy, commands) + layered welcome + gateway wiring"`
 
 ### Task 7: 装配验证 — 启动交叉校验与 access 失败面（测试固化）
 
@@ -1152,7 +1152,7 @@ import { TURN_ABORTED_ERROR } from '../agent/manager';
 - Consumes: Task 6 完整装配（AccessGate 注入 + 交叉校验）
 - Produces: 启动面契约测试（`groups` 非空而 `groupMentionName` 缺失 ⇒ ConfigError；access 缺失/损坏 ⇒ AccessError(⊂ConfigError)）
 
-- [ ] **Step 1: Write the tests**（追加进 `tests/integration/agent.test.ts`；文件头补 `import { ConfigError } from '../../src/config';`）
+- [x] **Step 1: Write the tests**（追加进 `tests/integration/agent.test.ts`；文件头补 `import { ConfigError } from '../../src/config';`）
 
 ```ts
 test('W3 接线：approved 用户 happy path 不回归（gate 放行进 agent）', async () => {
@@ -1200,14 +1200,14 @@ test('W3 接线：access.json 缺失/损坏 ⇒ createGateway 启动即抛 Confi
 });
 ```
 
-- [ ] **Step 2: Run it and verify it PASSES** — Run: `bun test tests/integration/agent.test.ts` Expected: PASS（Task 6 实现已落——若红即装配缺口，回补实现而非改测试）
-- [ ] **Step 3: Commit** — `git add tests/integration/agent.test.ts && git commit -m "W3: startup cross-validation + access failure-surface integration tests"`
+- [x] **Step 2: Run it and verify it PASSES** — Run: `bun test tests/integration/agent.test.ts` Expected: PASS（Task 6 实现已落——若红即装配缺口，回补实现而非改测试）
+- [x] **Step 3: Commit** — `git add tests/integration/agent.test.ts && git commit -m "W3: startup cross-validation + access failure-surface integration tests"`
 
 ## Checkpoint C（Tasks 6–7 后）
 
-- [ ] `bun run typecheck` 通过
-- [ ] `bun test`（全量）通过
-- [ ] 手工烟测（可选）：`bun run build && node dist/… run -r <tmp-ws>`（真凭据缺省跳过，CI 面靠 mock 集成测试）
+- [x] `bun run typecheck` 通过
+- [x] `bun test`（全量）通过
+- [x] 手工烟测（可选——真凭据缺省按条目自身规则跳过，CI 面由 mock 集成测试覆盖）：`bun run build && node dist/… run -r <tmp-ws>`（真凭据缺省跳过，CI 面靠 mock 集成测试）
 
 ### Task 8: 端到端集成 — AC1–AC4 + /new 编排
 

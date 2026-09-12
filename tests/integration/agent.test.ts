@@ -16,11 +16,13 @@ async function waitUntil(cond: () => boolean, ms = 8000): Promise<void> {
   }
 }
 
-async function setup(scenario: string, agent: Record<string, unknown> = {}) {
+async function setup(scenario: string, agent: Record<string, unknown> = {}, opts: { access?: unknown; cfg?: Record<string, unknown> } = {}) {
   const ws = mkdtempSync(join(tmpdir(), 'wb-agent-'));
   const { loadWorkspace } = await import('../../src/config');
   loadWorkspace(ws);
   writeFileSync(join(ws, '.bot', '.env'), 'WECOM_BOT_ID=b\nWECOM_SECRET=s\n');
+  writeFileSync(join(ws, '.bot', 'access.json'), JSON.stringify(opts.access ?? { approved: ['u1'] }) + '\n'); // W3 基线：u1 放行（空 access 下 u1 = 陌生人）
+  if (opts.cfg) writeFileSync(join(ws, '.bot', 'config.json'), JSON.stringify({ logLevel: 'info', ...opts.cfg }, null, 2) + '\n');
   const stateDir = join(ws, 'fake-state');
   mkdirSync(stateDir, { recursive: true });
   process.env.FAKE_CLAUDE_STATE_DIR = stateDir;
@@ -146,12 +148,73 @@ test('AC5：无输出超时回合干净收流（压缩 turnTimeoutMs），子进
   await gateway.stop(); await srv.stop();
 });
 
-test('群聊路径：chatid 定址会话，群消息往返', async () => {
-  const { srv, gateway, stateDir } = await setup('happy');
-  srv.pushTextMessage('req-g', { msgid: 'g1', userId: 'u1', content: '群消息', chatType: 'group', chatid: 'wrGrp' });
+test('群聊路径：chatid 定址会话，群消息往返（W3 契约：allowlist + @ 提及触发）', async () => {
+  const { srv, gateway, stateDir } = await setup('happy', {}, { access: { approved: ['u1'], groups: ['wrGrp'] }, cfg: { groupMentionName: '小助手' } });
+  srv.pushTextMessage('req-g', { msgid: 'g1', userId: 'u1', content: '@小助手 群消息', chatType: 'group', chatid: 'wrGrp' });
   await waitUntil(() => streamsOf(srv).some((s) => s.finish));
   expect(streamsOf(srv).at(-1)!.finish).toBe(true);
   const stdin = readFileSync(join(stateDir, 'stdin.jsonl'), 'utf8');
   expect(stdin).toContain('[Context: sender=u1, userid=u1, chat=wrGrp (group)]');
+  expect(stdin).toContain('群消息'); // @ 提及已剥离
   await gateway.stop(); await srv.stop();
+});
+
+// ===== W3 装配验证（Task 7）=====
+
+test('W3 接线：approved 用户 happy path 不回归（gate 放行进 agent）', async () => {
+  const { srv, gateway } = await setup('happy'); // setup 已写 {approved:['u1']}
+  srv.pushTextMessage('req-1', { msgid: 'm1', userId: 'u1', content: '你好' });
+  await waitUntil(() => streamsOf(srv).some((s) => s.finish));
+  expect(streamsOf(srv).at(-1)!.content).toContain('假回复');
+  await gateway.stop(); await srv.stop();
+});
+
+test('W3 接线：groups 非空而 groupMentionName 缺失 ⇒ createGateway 抛 ConfigError', async () => {
+  const { loadWorkspace, ConfigError } = await import('../../src/config');
+  const ws = mkdtempSync(join(tmpdir(), 'wb-xval-'));
+  loadWorkspace(ws);
+  writeFileSync(join(ws, '.bot', '.env'), 'WECOM_BOT_ID=b\nWECOM_SECRET=s\n');
+  writeFileSync(join(ws, '.bot', 'access.json'), '{"groups":["g1"]}\n');
+  const srv = new MockWecomServer();
+  const { url } = await srv.start();
+  let err: unknown;
+  try { await createGateway(ws, { wsUrl: url }); } catch (e) { err = e; }
+  expect(err).toBeInstanceOf(ConfigError);
+  expect((err as Error).message).toContain('groupMentionName');
+  await srv.stop();
+});
+
+test('W3 接线：access.json 损坏 ⇒ createGateway 启动即抛 ConfigError；缺失被 W1 幂等树治愈为 {} deny-all（R2-F1/R3-F1）', async () => {
+  const { AccessError } = await import('../../src/access');
+  const { ConfigError } = await import('../../src/config');
+  // 损坏：响亮失败（AccessError ⊂ ConfigError——与配置错误同契约）
+  {
+    const ws = mkdtempSync(join(tmpdir(), 'wb-accfail-'));
+    const { loadWorkspace } = await import('../../src/config');
+    loadWorkspace(ws);
+    writeFileSync(join(ws, '.bot', '.env'), 'WECOM_BOT_ID=b\nWECOM_SECRET=s\n');
+    writeFileSync(join(ws, '.bot', 'access.json'), 'garbage{');
+    const srv = new MockWecomServer();
+    const { url } = await srv.start();
+    let err: unknown;
+    try { await createGateway(ws, { wsUrl: url }); } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(AccessError);
+    expect(err).toBeInstanceOf(ConfigError);
+    await srv.stop();
+  }
+  // 缺失：createGateway 内 loadWorkspace→ensureWorkspaceTree 重建 {} 占位——合法 deny-all 启动（W1 幂等语义）
+  {
+    const ws = mkdtempSync(join(tmpdir(), 'wb-accmiss-'));
+    const { loadWorkspace } = await import('../../src/config');
+    loadWorkspace(ws);
+    writeFileSync(join(ws, '.bot', '.env'), 'WECOM_BOT_ID=b\nWECOM_SECRET=s\n');
+    const { rmSync, readFileSync: rf } = await import('node:fs');
+    rmSync(join(ws, '.bot', 'access.json'));
+    const srv = new MockWecomServer();
+    const { url } = await srv.start();
+    const { gateway } = await createGateway(ws, { wsUrl: url }); // 不抛
+    expect(rf(join(ws, '.bot', 'access.json'), 'utf8')).toBe('{}\n'); // 占位已重建
+    await gateway.stop();
+    await srv.stop();
+  }
 });

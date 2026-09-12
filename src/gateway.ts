@@ -8,6 +8,7 @@ import { assertCredentials, EnvError } from './env';
 import { AgentHandler } from './handlers/agent';
 import { AgentManager, type ClaudeCommand } from './agent/manager';
 import { SessionStore } from './agent/session-store';
+import { AccessGate } from './access';
 
 /** W2：消息面 handler 契约（AgentHandler 实现；测试注入桩） */
 export interface BotHandler { register(): void; stop?(): Promise<void> }
@@ -168,6 +169,13 @@ export async function createGateway(
   const sessions = new SessionStore(join(ws.botDir, 'sessions'), {
     onTelemetryError: (err, what) => logger.warn('session telemetry write failed', { what, err: err.message }),
   });
+  const access = new AccessGate(join(ws.botDir, 'access.json'), {
+    onError: (e) => logger.error('access reload failed, using last-known-good', { err: e.message }),
+  });
+  // D3 启动交叉校验：配了群却配不出触发名 = 配置残缺（运行期 groups 热加而缺名 ⇒ 群帧全忽略 + debug——fail-safe）
+  if (access.load().groups.length > 0 && !ws.config.groupMentionName) {
+    throw new ConfigError(`access.json lists groups but config.json has no groupMentionName — group @-trigger cannot match (workspace: ${workspace})`);
+  }
   const manager = new AgentManager({
     workspacePath: workspace, sessions, logger,
     options: {
@@ -181,7 +189,7 @@ export async function createGateway(
     },
   });
   let gatewayRef: Gateway | null = null;
-  const handler = new AgentHandler({ transport, logger, manager, workspace }, {
+  const handler = new AgentHandler({ transport, logger, manager, workspace, access, ...(ws.config.groupMentionName ? { mentionName: ws.config.groupMentionName } : {}) }, {
     onReplyError: (e) => gatewayRef?.recordAgentError(e),   // F8：agent 失败进 state.json lastError
     ...(agent.refreshIntervalMs !== undefined ? { refreshIntervalMs: agent.refreshIntervalMs } : {}),
   });

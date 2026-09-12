@@ -1,11 +1,12 @@
 import { test, expect } from 'bun:test';
-import { mkdtempSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentHandler, ConversationRateLimiter } from '../../src/handlers/agent';
 import type { AgentEvent, AgentEventHandler } from '../../src/agent/manager';
 import type { InboundTextMessage, ReplyRef, TransportEvent, TransportHandler, WeComTransport } from '../../src/transport/types';
 import { BotLogger } from '../../src/logger';
+import { AccessGate } from '../../src/access';
 
 class FakeTransport implements WeComTransport {
   sent: Array<{ streamId: string; content: string; finish: boolean }> = [];
@@ -32,6 +33,10 @@ class FakeManager {
   pendingFlag = false;
   expireResult = false;
   nextEvents: Array<(emit: (ev: AgentEvent) => void) => void> = [];
+  aborts: string[] = [];
+  resets: string[] = [];
+  abortStatus: 'stopped' | 'stopping' | 'idle' = 'idle';
+  abortDropped = 0;
   submit(chatKey: string, _ct: 'single' | 'group', _u: string, prompt: string, onEvent: AgentEventHandler) {
     this.submitted.push({ chatKey, prompt });
     const gen = this.nextEvents.shift();
@@ -41,16 +46,33 @@ class FakeManager {
   async answerPendingAsk(_k: string, text: string, _uid?: string): Promise<'answered' | 'invalid_numeric' | 'none' | 'answerer-busy'> { this.answers.push(text); return this.answerResult; }
   hasPendingAsk() { return this.pendingFlag; }
   expireStaleAsk() { return this.expireResult; }
+  abortChat(chatKey: string) { this.aborts.push(chatKey); return { status: this.abortStatus, dropped: this.abortDropped }; }
+  resetSession(chatKey: string) { this.resets.push(chatKey); }
+  inFlightCount() { return 0; }
+  activeSessionCount() { return 0; }
   async closeAll() {}
 }
 
 function makeHandler(manager = new FakeManager(), opts: { onReplyError?: (e: Error) => void } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'wb-hdl-'));
   mkdirSync(join(dir, 'logs'), { recursive: true });
+  writeFileSync(join(dir, 'access.json'), JSON.stringify({ admin: ['u1'] }) + '\n'); // W2 默认 userId=u1 全放行（W3 基线）
+  const access = new AccessGate(join(dir, 'access.json'));
   const transport = new FakeTransport();
   const logger = new BotLogger({ level: 'debug', logDir: join(dir, 'logs'), console: false });
-  const handler = new AgentHandler({ transport, logger, manager, workspace: dir }, { refreshIntervalMs: 10, ...opts });
+  const handler = new AgentHandler({ transport, logger, manager, workspace: dir, access }, { refreshIntervalMs: 10, ...opts });
   return { handler, transport, manager, dir, logger };
+}
+
+function makeGatedHandler(accessJson: unknown, mentionName?: string, manager = new FakeManager()) {
+  const dir = mkdtempSync(join(tmpdir(), 'wb-gate-'));
+  mkdirSync(join(dir, 'logs'), { recursive: true });
+  writeFileSync(join(dir, 'access.json'), JSON.stringify(accessJson) + '\n');
+  const access = new AccessGate(join(dir, 'access.json'));
+  const transport = new FakeTransport();
+  const logger = new BotLogger({ level: 'debug', logDir: join(dir, 'logs'), console: false });
+  const handler = new AgentHandler({ transport, logger, manager, workspace: dir, access, ...(mentionName !== undefined ? { mentionName } : {}) }, { refreshIntervalMs: 10 });
+  return { handler, transport, manager, dir, access };
 }
 
 const MSG = (over: Partial<InboundTextMessage> = {}): { type: 'textMessage'; message: InboundTextMessage } => ({
@@ -192,13 +214,15 @@ test('ConversationRateLimiter：双窗（假时钟）；会话间隔离；record
 test('终帧有界等待→逃逸记账：预算耗尽时 final 仍发出、且记账压制后续（注入假限流器）', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'wb-hdl-'));
   mkdirSync(join(dir, 'logs'), { recursive: true });
+  writeFileSync(join(dir, 'access.json'), JSON.stringify({ admin: ['u1'] }) + '\n'); // W3 基线
+  const access = new AccessGate(join(dir, 'access.json'));
   const transport = new FakeTransport();
   const logger = new BotLogger({ level: 'debug', logDir: join(dir, 'logs'), console: false });
   const recorded: string[] = [];
   const exhausted = { tryAcquire: (_k: string) => false, record: (k: string) => recorded.push(k) }; // 永远没预算
   const mgr = new FakeManager();
   const handler = new AgentHandler(
-    { transport, logger, manager: mgr, workspace: dir },
+    { transport, logger, manager: mgr, workspace: dir, access },
     { rateLimiter: exhausted as unknown as ConversationRateLimiter, finalWaitIntervalMs: 5, finalWaitMaxTries: 3 },
   );
   handler.register();
@@ -213,13 +237,15 @@ test('终帧有界等待→逃逸记账：预算耗尽时 final 仍发出、且�
 test('通知帧预算耗尽即丢（不等待不逃逸）：queue-full 通知被 exhausted 限流器吞掉', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'wb-hdl-'));
   mkdirSync(join(dir, 'logs'), { recursive: true });
+  writeFileSync(join(dir, 'access.json'), JSON.stringify({ admin: ['u1'] }) + '\n'); // W3 基线
+  const access = new AccessGate(join(dir, 'access.json'));
   const transport = new FakeTransport();
   const logger = new BotLogger({ level: 'debug', logDir: join(dir, 'logs'), console: false });
   const exhausted = { tryAcquire: (_k: string) => false, record: (_k: string) => {} };
   const mgr = new FakeManager();
   mgr.submitResult = 'queue-full';
   const handler = new AgentHandler(
-    { transport, logger, manager: mgr, workspace: dir },
+    { transport, logger, manager: mgr, workspace: dir, access },
     { rateLimiter: exhausted as unknown as ConversationRateLimiter },
   );
   handler.register();
@@ -312,6 +338,8 @@ test('ask_expired 只认领处女续流：入站过期路径挂了 banner 的流
 test('关键兜底不受限流丢弃：预算耗尽时入站失败仍发「处理失败」终帧并记账（pr-review R2-P3）', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'wb-hdl-'));
   mkdirSync(join(dir, 'logs'), { recursive: true });
+  writeFileSync(join(dir, 'access.json'), JSON.stringify({ admin: ['u1'] }) + '\n'); // W3 基线
+  const access = new AccessGate(join(dir, 'access.json'));
   const transport = new FakeTransport();
   const logger = new BotLogger({ level: 'debug', logDir: join(dir, 'logs'), console: false });
   const recorded: string[] = [];
@@ -319,7 +347,7 @@ test('关键兜底不受限流丢弃：预算耗尽时入站失败仍发「处�
   const mgr = new FakeManager();
   mgr.expireStaleAsk = () => { throw new Error('EACCES: session read failed'); };
   const handler = new AgentHandler(
-    { transport, logger, manager: mgr, workspace: dir },
+    { transport, logger, manager: mgr, workspace: dir, access },
     { rateLimiter: exhausted as unknown as ConversationRateLimiter, finalWaitIntervalMs: 5, finalWaitMaxTries: 3 },
   );
   handler.register();
@@ -329,4 +357,160 @@ test('关键兜底不受限流丢弃：预算耗尽时入站失败仍发「处�
   expect(transport.sent[0]!.finish).toBe(true);
   expect(transport.sent[0]!.content).toMatch(/处理失败/);
   expect(recorded).toEqual(['single:u1']); // 逃逸记账在案
+});
+
+// ===== W3：gate / 命令 / 群策略 / welcome =====
+
+const logLines = (dir: string): Array<Record<string, unknown>> =>
+  readFileSync(join(dir, 'logs', `gateway-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.jsonl`), 'utf8')
+    .trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>);
+
+test('W3 gate：陌生人 p2p 得拒绝文案、不 submit；rejected 同文案；approved 放行', async () => {
+  const { handler, transport, manager } = makeGatedHandler({ approved: ['u1'], rejected: ['bad'] });
+  handler.register();
+  transport.emit(MSG({ userId: 'stranger', content: '/help' })); // 陌生人的命令也只得到拒绝
+  await flush();
+  expect(transport.sent.at(-1)!.content).toContain('未被授权');
+  transport.emit(MSG({ userId: 'bad', content: '你好' }));       // rejected 与 unknown 同文案
+  await flush();
+  expect(transport.sent.at(-1)!.content).toContain('未被授权');
+  expect(manager.submitted.length).toBe(0);
+  transport.emit(MSG()); // u1 approved
+  await flush();
+  expect(manager.submitted.length).toBe(1);
+});
+
+test('W3 AC1：四命令分派——均不 submit；未知命令 → 帮助文案', async () => {
+  const { handler, transport, manager } = makeGatedHandler({ admin: ['u1'] });
+  handler.register();
+  for (const c of ['/help', '/status', '/new', '/stop', '/frobnicate']) {
+    transport.emit(MSG({ content: c }));
+    await flush();
+  }
+  expect(manager.submitted.length).toBe(0);
+  const texts = transport.sent.map((f) => f.content).join('\n--\n');
+  expect(texts).toContain('/new');                    // help
+  expect(texts).toContain('网关状态');                 // status（admin）
+  expect(texts).toContain('已重置会话');               // new
+  expect(texts).toContain('当前没有进行中的回合');       // stop（idle）
+  expect(texts).toContain('未知命令：/frobnicate');     // unknown → help
+  expect(manager.resets.length).toBe(1);              // new 闭档
+});
+
+test('W3 /status：approved 用户与群内均拒答（不披露 roster）', async () => {
+  const { handler, transport } = makeGatedHandler({ admin: ['boss'], approved: ['u1'], groups: ['g1'] }, '小助手');
+  handler.register();
+  transport.emit(MSG({ content: '/status' })); // u1 = approved（p2p）
+  await flush();
+  expect(transport.sent.at(-1)!.content).toContain('仅管理员');
+  expect(transport.sent.at(-1)!.content).not.toContain('boss'); // 无 roster 泄露
+  transport.emit(MSG({ chatType: 'group', chatId: 'g1', userId: 'boss', content: '@小助手 /status' })); // admin 在群里也拒
+  await flush();
+  expect(transport.sent.at(-1)!.content).toContain('仅管理员');
+  expect(transport.sent.at(-1)!.content).not.toContain('boss');
+});
+
+test('W3 /stop：stopped/stopping 不发 idle 提示（回执由中止终帧承载）；idle+dropped 提示清空数', async () => {
+  const manager = new FakeManager();
+  manager.abortStatus = 'stopped';
+  const { handler, transport } = makeGatedHandler({ approved: ['u1'] }, undefined, manager);
+  handler.register();
+  transport.emit(MSG({ content: '/stop' }));
+  await flush();
+  expect(manager.aborts.length).toBe(1);
+  expect(transport.sent.filter((f) => f.content.includes('当前没有进行中的回合')).length).toBe(0); // 无 idle 误报
+  manager.abortStatus = 'stopping'; // 双击
+  transport.emit(MSG({ content: '/stop' }));
+  await flush();
+  expect(transport.sent.filter((f) => f.content.includes('当前没有进行中的回合')).length).toBe(0);
+  manager.abortStatus = 'idle'; manager.abortDropped = 2;
+  transport.emit(MSG({ content: '/stop' }));
+  await flush();
+  expect(transport.sent.at(-1)!.content).toContain('已清空 2 条排队消息');
+});
+
+test('W3 abort 文案映射：turn_failed(aborted) → 「已停止当前回合」', async () => {
+  const { handler, transport, manager } = makeGatedHandler({ approved: ['u1'] });
+  handler.register();
+  manager.nextEvents.push((emit) => emit({ type: 'turn_failed', chatKey: 'single:u1', error: 'turn aborted by user command' }));
+  transport.emit(MSG()); // 起回合——事件经 FakeManager 闭包回放
+  await flush();
+  expect(transport.sent.at(-1)!.content).toContain('已停止当前回合');
+});
+
+test('W3 命令先于 pending-ask：pending ask 期间的 /stop 中止而非作答', async () => {
+  const manager = new FakeManager();
+  manager.pendingFlag = true;
+  const { handler, transport } = makeGatedHandler({ approved: ['u1'] }, undefined, manager);
+  handler.register();
+  transport.emit(MSG({ content: '/stop' }));
+  await flush();
+  expect(manager.aborts.length).toBe(1);
+  expect(manager.answers.length).toBe(0); // 未消费 ask
+});
+
+test('W3 群策略：allowlist+@+剥离进 agent；未 listed 群/rejected/无 @/冒名前缀 忽略', async () => {
+  const { handler, transport, manager } = makeGatedHandler({ approved: ['u1'], rejected: ['bad'], groups: ['g1'] }, '小助手');
+  handler.register();
+  transport.emit(MSG({ chatType: 'group', chatId: 'g1', userId: 'u1', content: '@小助手 群里好' }));
+  await flush();
+  expect(manager.submitted.at(-1)!.prompt).toContain('群里好');
+  expect(manager.submitted.at(-1)!.chatKey).toBe('group:g1');
+  const before = manager.submitted.length;
+  transport.emit(MSG({ chatType: 'group', chatId: 'g2', userId: 'u1', content: '@小助手 未授权群' })); // 非 listed 群
+  transport.emit(MSG({ chatType: 'group', chatId: 'g1', userId: 'bad', content: '@小助手 被拒者' }));   // rejected
+  transport.emit(MSG({ chatType: 'group', chatId: 'g1', userId: 'u1', content: '没有@' }));            // 无提及
+  transport.emit(MSG({ chatType: 'group', chatId: 'g1', userId: 'u1', content: '@小助手2 冒名' }));     // token 边界
+  await flush();
+  expect(manager.submitted.length).toBe(before);
+});
+
+test('W3 群命令：@bot /stop 在群内分派（群会话可停）', async () => {
+  const manager = new FakeManager();
+  manager.abortStatus = 'idle'; manager.abortDropped = 2;
+  const { handler, transport } = makeGatedHandler({ groups: ['g1'] }, '小助手', manager);
+  handler.register();
+  transport.emit(MSG({ chatType: 'group', chatId: 'g1', userId: 'anyone', content: '@小助手 /stop' }));
+  await flush();
+  expect(manager.aborts.length).toBe(1);
+  expect(transport.sent.at(-1)!.content).toContain('已清空 2 条排队消息');
+});
+
+test('W3 AC4 welcome：allowed→欢迎+命令清单；unknown→拒绝文案；同步调用（零前置 await）；群 enter_chat 忽略', async () => {
+  const { handler, transport } = makeGatedHandler({ approved: ['u1'] });
+  handler.register();
+  transport.emit({ type: 'enterChat', message: { msgid: 'e1', chatType: 'single', userId: 'u1', replyTo: { __brand: 'ReplyRef', reqId: 'r-ec' } } });
+  expect(transport.welcomes.length).toBe(1); // 同步 tick 内已发起——5s 窗硬路径（D5）
+  expect(transport.welcomes[0]!.content).toContain('/help');
+  transport.emit({ type: 'enterChat', message: { msgid: 'e2', chatType: 'single', userId: 'stranger', replyTo: { __brand: 'ReplyRef', reqId: 'r-ec2' } } });
+  expect(transport.welcomes[1]!.content).toContain('未被授权');
+  transport.emit({ type: 'enterChat', message: { msgid: 'e3', chatType: 'group', chatId: 'g1', userId: 'u1', replyTo: { __brand: 'ReplyRef', reqId: 'r-ec3' } } });
+  expect(transport.welcomes.length).toBe(2); // 群 enter_chat 忽略
+});
+
+test('W3 feedback_event：仅日志，无任何回执', async () => {
+  const { handler, transport } = makeGatedHandler({ approved: ['u1'] });
+  handler.register();
+  transport.emit({ type: 'feedbackEvent', message: { msgid: 'f1', chatType: 'single', userId: 'u1' } });
+  await flush();
+  expect(transport.sent.length).toBe(0);
+  expect(transport.welcomes.length).toBe(0);
+});
+
+test('W3 日志契约（R2-F5）：feedback/拒绝入日志但不记内容；welcome 失败 ERROR 留痕', async () => {
+  const { handler, transport, dir } = makeGatedHandler({ approved: ['u1'] });
+  handler.register();
+  transport.emit({ type: 'feedbackEvent', message: { msgid: 'f1', chatType: 'single', userId: 'u1' } });
+  await flush();
+  const fb = logLines(dir).find((l) => l['event'] === 'feedback event')!;
+  expect(fb['msgid']).toBe('f1');
+  expect(JSON.stringify(fb)).not.toContain('消息内容'); // 无内容字段面
+  transport.emit(MSG({ userId: 'stranger', content: '秘密内容xyz' }));
+  await flush();
+  const rej = logLines(dir).find((l) => l['event'] === 'p2p sender not authorized')!;
+  expect(JSON.stringify(rej)).not.toContain('秘密内容xyz'); // 拒绝日志不记内容（D8）
+  transport.welcomeImpl = async () => { throw new Error('5s window passed'); };
+  transport.emit({ type: 'enterChat', message: { msgid: 'e9', chatType: 'single', userId: 'u1', replyTo: { __brand: 'ReplyRef', reqId: 'r-e9' } } });
+  await flush();
+  expect(logLines(dir).some((l) => l['event'] === 'welcome reply failed' && l['level'] === 'error')).toBe(true);
 });
