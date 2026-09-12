@@ -39,7 +39,7 @@
 **Interfaces:**
 - Produces: `BotConfig.sessionIdleTtlMinutes?: number`（>0 整数，缺省 60）、`BotConfig.claudeModel?: string`（trim 后非空，缺省 `'glm-5.3-flash'`）、`BotConfig.maxConcurrentTurns?: number`（>0 整数，缺省 4）；常量 `DEFAULT_SESSION_IDLE_TTL_MINUTES`、`DEFAULT_CLAUDE_MODEL`、`DEFAULT_MAX_CONCURRENT_TURNS` 从 `src/config.ts` 导出。
 
-- [ ] **Step 1: 追加失败测试**（`tests/unit/config.test.ts` 末尾追加；沿用该文件既有的临时目录写 config.json 模式）
+- [x] **Step 1: 追加失败测试**（`tests/unit/config.test.ts` 末尾追加；沿用该文件既有的临时目录写 config.json 模式）
 
 ```ts
 import { DEFAULT_CLAUDE_MODEL, DEFAULT_MAX_CONCURRENT_TURNS, DEFAULT_SESSION_IDLE_TTL_MINUTES } from '../../src/config';
@@ -77,9 +77,9 @@ describe('W2 config keys', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测确认 FAIL** — Run: `bun test tests/unit/config.test.ts`
+- [x] **Step 2: 跑测确认 FAIL** — Run: `bun test tests/unit/config.test.ts`
   Expected: FAIL（`sessionIdleTtlMinutes` 等属性不存在 / 导出缺失——typecheck 亦炸，属预期）
-- [ ] **Step 3: 实现**（`src/config.ts`）
+- [x] **Step 3: 实现**（`src/config.ts`）
 
 ```ts
 export interface BotConfig {
@@ -130,11 +130,13 @@ parseConfig 末尾追加（沿用既有 numKey 循环风格，`session_idle_ttl_
   if (cfg.maxConcurrentTurns === undefined) cfg.maxConcurrentTurns = DEFAULT_MAX_CONCURRENT_TURNS;
 ```
 
+**执行偏差（r1）**：parseConfig 只做**校验**、不填默认值——三键缺省保持 `undefined`，默认值由 `AgentManager` 构造时持有（manager 代码本就自带 `?? DEFAULT_*` 兜底，单一事实源）。理由：计划原案在 parseConfig 填默认值会破坏 W1 既有 exact-shape 断言（`config).toEqual({ logLevel: 'info' })`），且 manager 已拥有同款默认。`DEFAULT_*` 常量不进 config.ts。
+
 （注：numKey 联合类型含 snake_case 键时 `cfg[numKey] = v` 需要键名映射——实现时按上式先循环校验、再显式赋值三个键，避免索引类型冲突；typecheck 必须零错误。）
 
-- [ ] **Step 4: 跑测确认 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration`
+- [x] **Step 4: 跑测确认 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration`
   Expected: PASS 全绿
-- [ ] **Step 5: Commit** — `git add src/config.ts tests/unit/config.test.ts && git commit -m "feat(config): W2 keys session_idle_ttl_minutes/claudeModel/maxConcurrentTurns with strict validation"`
+- [x] **Step 5: Commit** — `git add src/config.ts tests/unit/config.test.ts && git commit -m "feat(config): W2 keys session_idle_ttl_minutes/claudeModel/maxConcurrentTurns with strict validation"`
 
 ---
 

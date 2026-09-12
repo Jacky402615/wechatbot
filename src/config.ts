@@ -8,6 +8,12 @@ export interface BotConfig {
   logLevel: LogLevel;
   heartbeatInterval?: number;
   maxReconnectAttempts?: number;
+  /** W2：会话空闲 TTL（分钟）——issue 原文键名，SRS 键名优先于仓库 camelCase 风格；缺省值由 AgentManager 持有 */
+  sessionIdleTtlMinutes?: number;
+  /** W2：claude --model 值（trim 后非空）；缺省 glm-5.3-flash 由 AgentManager 持有 */
+  claudeModel?: string;
+  /** W2：全局并发回合帽（资源保护；平台每用户帽是 manager 常量）；缺省 4 由 AgentManager 持有 */
+  maxConcurrentTurns?: number;
 }
 
 export class ConfigError extends Error {}
@@ -80,6 +86,27 @@ function parseConfig(text: string, path: string): BotConfig {
       }
       cfg[numKey] = v;
     }
+  }
+  const ttl = raw['session_idle_ttl_minutes'];
+  if (ttl !== undefined) {
+    if (typeof ttl !== 'number' || !Number.isInteger(ttl) || ttl <= 0) {
+      throw new ConfigError(`session_idle_ttl_minutes must be an integer > 0 in ${path}`);
+    }
+    cfg.sessionIdleTtlMinutes = ttl;
+  }
+  const turns = raw['maxConcurrentTurns'];
+  if (turns !== undefined) {
+    if (typeof turns !== 'number' || !Number.isInteger(turns) || turns <= 0) {
+      throw new ConfigError(`maxConcurrentTurns must be an integer > 0 in ${path}`);
+    }
+    cfg.maxConcurrentTurns = turns;
+  }
+  const model = raw['claudeModel'];
+  if (model !== undefined) {
+    if (typeof model !== 'string' || model.trim() === '') {
+      throw new ConfigError(`claudeModel must be a non-empty string in ${path}`);
+    }
+    cfg.claudeModel = model.trim();
   }
   return cfg;
 }
