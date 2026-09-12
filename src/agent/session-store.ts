@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
@@ -122,6 +122,19 @@ export class SessionStore {
     const s = this.get(chatKey);
     if (!s) return;
     this.write({ ...s, status: 'closed' });
+  }
+
+  /** /status 数据面：活动档计数（读目录 + 逐档 status 判定——记录极小，W2 D4 无启动清扫同因）。 */
+  listActive(): number {
+    let n = 0;
+    for (const f of readdirSync(this.sessionsDir)) {
+      if (!f.endsWith('.json')) continue;
+      try {
+        const s = JSON.parse(readFileSync(join(this.sessionsDir, f), 'utf8')) as ChatSession;
+        if (s && s.status === 'active') n += 1;
+      } catch { /* 坏档不计数（get 同款严格丢语义） */ }
+    }
+    return n;
   }
 
   private write(s: ChatSession): void {

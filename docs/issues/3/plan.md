@@ -605,7 +605,7 @@ export interface InboundFeedbackEvent {
   - `AgentManager.activeSessionCount(): number`
   - `SessionStore.listActive(): number`
 
-- [ ] **Step 1: Write the failing test**（追加进 `tests/unit/manager.test.ts`）
+- [x] **Step 1: Write the failing test**（追加进 `tests/unit/manager.test.ts`）
 
 ```ts
 test('W3 abortChat：在跑回合被杀，EOF 路径发 turn_failed(TURN_ABORTED_ERROR)，槽位释放、进程死；双击第二击 = stopping', async () => {
@@ -666,8 +666,8 @@ test('W3 resetSession / activeSessionCount / listActive：闭档后活跃数归�
 
 （文件头 import 补 `TURN_ABORTED_ERROR`：`import { AgentManager, TURN_TIMEOUT_ERROR, TURN_ABORTED_ERROR, type AgentEvent } from '../../src/agent/manager';`）
 
-- [ ] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/unit/manager.test.ts` Expected: FAIL（TURN_ABORTED_ERROR 未导出 / abortChat 不是函数）
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/unit/manager.test.ts` Expected: FAIL（TURN_ABORTED_ERROR 未导出 / abortChat 不是函数）
+- [x] **Step 3: Write the minimal implementation**
 
 `src/agent/manager.ts`——常量区（`TURN_TIMEOUT_ERROR` 旁）：
 
@@ -742,8 +742,8 @@ EOF 失败路径（`if (!turnFinished) {` 块内，`expiredAskProcs` 判定**之
   }
 ```
 
-- [ ] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/unit/manager.test.ts` Expected: PASS（含既有全部——超时/ask 过期哨兵路径不回归）
-- [ ] **Step 5: Commit** — `git add src/agent/manager.ts src/agent/session-store.ts tests/unit/manager.test.ts && git commit -m "W3: manager abortChat (stopped/stopping/idle tri-state, sentinel kill), resetSession, status counters"`
+- [x] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/unit/manager.test.ts` Expected: PASS（含既有全部——超时/ask 过期哨兵路径不回归）
+- [x] **Step 5: Commit** — `git add src/agent/manager.ts src/agent/session-store.ts tests/unit/manager.test.ts && git commit -m "W3: manager abortChat (stopped/stopping/idle tri-state, sentinel kill), resetSession, status counters"`
 
 ## Checkpoint B（Tasks 4–5 后）
 
