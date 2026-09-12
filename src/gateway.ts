@@ -10,6 +10,7 @@ import { EchoHandler } from './handlers/echo';
 export class Gateway {
   private state: GatewayState;
   private stopped = false;
+  private fatalCallbacks: Array<(err: Error) => void> = [];
 
   constructor(private opts: { transport: WeComTransport; logger: BotLogger; botDir: string; pid?: number }) {
     this.state = {
@@ -17,6 +18,11 @@ export class Gateway {
       updatedAt: new Date().toISOString(), kickedCount: 0, reconnects: 0,
     };
     this.opts.transport.on((event) => this.onEvent(event));
+  }
+
+  /** 致命错误（如自愈期认证耗尽）：宿主应停机并响亮退出 */
+  onFatal(cb: (err: Error) => void): void {
+    this.fatalCallbacks.push(cb);
   }
 
   async start(): Promise<void> {
@@ -69,6 +75,17 @@ export class Gateway {
       case 'error':
         this.persist({ lastError: event.error.message });
         this.opts.logger.error('transport error', { err: event.error.message });
+        break;
+      case 'fatal':
+        this.persist({ lastError: event.error.message, running: false });
+        this.opts.logger.error('fatal transport error, gateway cannot continue', { err: event.error.message });
+        for (const cb of this.fatalCallbacks) {
+          try {
+            cb(event.error);
+          } catch (e) {
+            this.opts.logger.error('fatal callback crashed', { err: (e as Error).message });
+          }
+        }
         break;
       case 'textMessage':
         this.persist({ lastEventAt: new Date().toISOString() });

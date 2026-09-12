@@ -19,7 +19,8 @@ WeCom 智能机器人 gateway，长连接模式。镜像 feishubot 的角色：�
   恢复后 10 min 内零再次失联。
 - 被踢（`disconnected_event`）：有新连接顶替旧连接。SDK 1.0.7 在此路径不自动重连
   （内置 isManualClose），由 adapter 延迟重新订阅自愈：默认 5 s（防与顶替者互踢），
-  认证耗尽类致命错误不重试（直接命中或 wrapped cause 均识别）。网关不重启：记录 ERROR
+  认证耗尽类致命错误不重试（直接命中或 wrapped cause 均识别），并上报 **fatal**——
+  宿主进程优雅停机并以退出码 1 结束（不空转）。网关不重启：记录 ERROR
   与 kickedCount，恢复后继续应答。
   实测（集成测试，压缩延迟 150 ms）：被踢 → 重订阅 → 新消息自动 echo 成功。
 - 单连接约束：一个 bot 同时只有一条活动连接。
@@ -40,9 +41,13 @@ WeCom 智能机器人 gateway，长连接模式。镜像 feishubot 的角色：�
   `gateway.pid`（pidfile，JSON：pid + /proc starttime 防 pid 复用；**前台 run 与后台 start 都持有**，
   退出时清理）。
 - pid 归属：仅当 pid 存活**且** starttime 匹配才认定为我们的网关；记录缺失/不匹配一律拒绝
-  （status 报陈旧、stop 不发信号——宁可误报未运行，不误杀无关进程）。
-- `start` 语义：轮询至"订阅确认连接 / 子进程退出 / 45 s 超时"才返回——返回 0 即已确认连接；
-  失败/超时杀子进程、清 pidfile、返回 1。
+  （status 报陈旧、stop 不发信号——宁可误报未运行，不误杀无关进程）。pidfile 记录无法读取
+  /proc starttime 的平台（非 Linux）上 run/start 直接失败——守护归属校验是硬要求。
+- `start` 语义：轮询至"**认证确认**（state.authenticated，而非仅 socket connected）/ 子进程退出 /
+  45 s 超时"才返回——返回 0 即订阅已被服务端确认；失败/超时杀子进程、清 pidfile、返回 1。
+- `status` 兼做首启初始化：幂等创建 `.bot/` 树（config 损坏不阻塞状态报告，初始化失败仅告警）。
+- `stop`/`status` 为管理面：不解析 config/.env——config 损坏也能停掉/报告在跑的网关；
+  pidfile 存在但无法解析时拒绝破坏性清理（退出 1，留人工处置）。
 - 日志：`.bot/logs/gateway-YYYYMMDD.jsonl`，JSONL，按日切分，保留 14 天。
   写失败/清理失败：stderr 留痕，不中断消息面。
 - `status`：pid 存活且归属匹配时输出完整状态 JSON；pid 已死时把 running/connected 归一为

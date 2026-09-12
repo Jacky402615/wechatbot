@@ -49,6 +49,14 @@ export async function run(opts: { workspace: string }): Promise<number> {
   };
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
+  // 自愈期致命错误（如被踢后凭据失效）：停机并响亮退出，不空转
+  gateway.onFatal((err) => {
+    process.stderr.write(`[wechatbot] 致命错误，网关退出: ${err.message}\n`);
+    void gateway.stop().finally(() => {
+      cleanupPidFile();
+      process.exit(1);
+    });
+  });
   try {
     await gateway.start();
   } catch (e) {
@@ -56,9 +64,10 @@ export async function run(opts: { workspace: string }): Promise<number> {
     return 1;
   }
   // 前台运行也持有 pidfile：status/stop 才能对 run 模式给出真实连接状态。
-  // 持久化失败即视为启动失败（不可见的网关比不启动更糟）。
+  // 持久化失败或无 /proc starttime（无法做归属校验）即视为启动失败。
   try {
-    writePidFile(pidPath, process.pid);
+    const entry = writePidFile(pidPath, process.pid);
+    if (entry.startedAt === null) throw new Error('cannot read /proc starttime — pid ownership unverifiable on this platform');
   } catch (e) {
     process.stderr.write(`[wechatbot] pidfile 写入失败，停止网关: ${(e as Error).message}\n`);
     await gateway.stop();

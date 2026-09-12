@@ -24,13 +24,25 @@ export async function stop(opts: { workspace: string }): Promise<number> {
     rmSync(pidPath, { force: true });
     return 0;
   }
-  process.kill(pid, 'SIGTERM');
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ESRCH') {
+      process.stderr.write(`[wechatbot] SIGTERM 失败 (pid ${pid}): ${(e as Error).message}\n`);
+      return 1;
+    }
+  }
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline && isPidAlive(pid)) await new Promise((r) => setTimeout(r, 200));
   if (isPidAlive(pid)) {
     try {
       process.kill(pid, 'SIGKILL');
-    } catch { /* ESRCH：恰在检查后退出 */ }
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ESRCH') {
+        process.stderr.write(`[wechatbot] SIGKILL 失败 (pid ${pid}): ${(e as Error).message}\n`);
+        return 1;
+      }
+    }
     process.stdout.write(`pid ${pid} 未在 5s 内退出，已 SIGKILL\n`);
   }
   rmSync(pidPath, { force: true });

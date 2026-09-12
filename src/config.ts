@@ -23,6 +23,14 @@ export interface Workspace {
 
 export function loadWorkspace(workspace: string): Workspace {
   const botDir = join(workspace, '.bot');
+  ensureWorkspaceTree(botDir);
+  const config = parseConfig(readFileSync(join(botDir, 'config.json'), 'utf8'), join(botDir, 'config.json'));
+  const creds = loadBotEnv(botDir);
+  return { workspace, botDir, config, creds };
+}
+
+/** 幂等创建 .bot 目录树与模板文件（不解析 config——管理面也能安全调用） */
+export function ensureWorkspaceTree(botDir: string): void {
   mkdirSync(join(botDir, 'sessions'), { recursive: true });
   mkdirSync(join(botDir, 'uploads'), { recursive: true });
   mkdirSync(join(botDir, 'logs'), { recursive: true });
@@ -42,9 +50,6 @@ export function loadWorkspace(workspace: string): Workspace {
       throw new ConfigError(`cannot tighten ${envPath} perms to 0600: ${(e as Error).message}`);
     }
   }
-  const config = parseConfig(readFileSync(configPath, 'utf8'), configPath);
-  const creds = loadBotEnv(botDir);
-  return { workspace, botDir, config, creds };
 }
 
 function parseConfig(text: string, path: string): BotConfig {

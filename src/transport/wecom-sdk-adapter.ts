@@ -114,8 +114,14 @@ export class WecomSdkTransport implements WeComTransport {
     try {
       await this.start();
     } catch (e) {
-      this.emit({ type: 'error', error: e as Error });
-      if (!isFatalAuthError(e as Error)) this.scheduleResubscribe();
+      const err = e as Error;
+      this.emit({ type: 'error', error: err });
+      if (isFatalAuthError(err)) {
+        // 自愈期认证耗尽：致命——上报 fatal 让宿主进程响亮退出，而不是挂着空转
+        this.emit({ type: 'fatal', error: err });
+      } else {
+        this.scheduleResubscribe();
+      }
     }
   }
 

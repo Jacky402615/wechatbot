@@ -21,9 +21,10 @@ export function processStartTime(pid: number): number | null {
   }
 }
 
-export function writePidFile(path: string, pid: number): void {
+export function writePidFile(path: string, pid: number): PidFile {
   const entry: PidFile = { pid, startedAt: processStartTime(pid) };
   writeFileSync(path, JSON.stringify(entry));
+  return entry;
 }
 
 export function readPidFile(path: string): PidFile | null {

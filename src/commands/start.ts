@@ -28,13 +28,16 @@ export async function start(opts: { workspace: string }): Promise<number> {
   let childExited = false;
   child.once('exit', () => { childExited = true; });
   try {
-    writePidFile(pidPath, pid);   // 立即持久化：失败则杀掉子进程，不留孤儿网关
+    const entry = writePidFile(pidPath, pid);   // 立即持久化：失败则杀掉子进程，不留孤儿网关
+    if (entry.startedAt === null) {
+      throw new Error('cannot read /proc starttime — pid ownership unverifiable on this platform');
+    }
   } catch (e) {
     await killChild(child);
     process.stderr.write(`[wechatbot] pidfile 写入失败，已终止子进程: ${(e as Error).message}\n`);
     return 1;
   }
-  // 轮询到"确认已连接 / 子进程退出 / 超时"——start 返回 0 必须意味着订阅已确认
+  // 轮询到"认证确认 / 子进程退出 / 超时"——start 返回 0 必须意味着订阅已被服务端确认
   const connected = await confirmStartup(() => childExited, ws.botDir, pid);
   if (!connected) {
     await killChild(child);
@@ -52,7 +55,7 @@ async function confirmStartup(childExited: () => boolean, botDir: string, pid: n
     if (childExited()) return false;                // 子进程已响亮退出（AC1 路径）
     try {
       const st = readState(botDir);
-      if (st?.connected === true && st.pid === pid) return true;
+      if (st?.authenticated === true && st.pid === pid) return true;   // connected 可能早于认证完成
     } catch { /* state 损坏按未连接处理，继续轮询 */ }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
@@ -63,7 +66,11 @@ async function killChild(child: ChildProcess): Promise<void> {
   if (child.pid) {
     try {
       process.kill(child.pid, 'SIGKILL');
-    } catch { /* ESRCH：已退出 */ }
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ESRCH') {
+        process.stderr.write(`[wechatbot] SIGKILL 子进程失败 (pid ${child.pid}): ${(e as Error).message}\n`);
+      }
+    }
   }
   // 有界等待退出：不因清理路径挂死 start
   await Promise.race([

@@ -14,6 +14,7 @@ export type TransportEvent =
   | { type: 'disconnected'; reason: string }
   | { type: 'reconnecting'; attempt: number }
   | { type: 'error'; error: Error }
+  | { type: 'fatal'; error: Error }
   | { type: 'kicked' }
   | { type: 'textMessage'; message: InboundTextMessage };
 
