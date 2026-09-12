@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import { ConfigError } from './config';
 
 export type AccessTier = 'admin' | 'approved' | 'rejected' | 'unknown';
@@ -32,12 +32,27 @@ const MAX_ID_BYTES = 128;
 const MAX_TOTAL_ENTRIES = 1000;
 const MAX_FILE_BYTES = 262_144; // 256 KB：1000 条 × 128B + 结构 + 余量；空白/转义填充也拦在读前
 
+/** 单 fd fstat + 恰量读（PR-review fix-loop F2）：stat/read TOCTOU 关闭——热重载窗口内
+ *  原地写入者扩文件也读不到 fstat 尺寸之外的字节；rename 替换不影响已打开的 fd。
+ *  读不足 fstat 尺寸（写入者收缩）⇒ 截断 JSON ⇒ 解析失败走既有失败面。 */
 function readBounded(path: string): string {
-  const size = statSync(path).size;
-  if (size > MAX_FILE_BYTES) {
-    throw new AccessError(`access file exceeds ${MAX_FILE_BYTES} bytes (${size}) at ${path}`);
+  const fd = openSync(path, 'r');
+  try {
+    const size = fstatSync(fd).size;
+    if (size > MAX_FILE_BYTES) {
+      throw new AccessError(`access file exceeds ${MAX_FILE_BYTES} bytes (${size}) at ${path}`);
+    }
+    const buf = Buffer.alloc(size);
+    let read = 0;
+    while (read < size) {
+      const n = readSync(fd, buf, read, size - read, read);
+      if (n === 0) break;
+      read += n;
+    }
+    return buf.toString('utf8');
+  } finally {
+    closeSync(fd);
   }
-  return readFileSync(path, 'utf8');
 }
 
 export function parseAccess(text: string, path: string): AccessState {
