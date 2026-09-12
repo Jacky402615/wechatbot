@@ -936,7 +936,7 @@ switch (SCENARIO) {
   - `interface AgentManagerOptions { claudeCommand?: ClaudeCommand | (() => ClaudeCommand); idleTtlMs?: number; turnTimeoutMs?: number; maxConcurrentTurns?: number; perUserInFlight?: number; queueLimit?: number; model?: string; buildSystemPrompt?: (workspacePath: string) => string; reapEofMs?: number; reapTermMs?: number }`
   - `class AgentManager { constructor(deps: { workspacePath: string; sessions: SessionStore; logger: BotLogger; options?: AgentManagerOptions }); submit(chatKey: string, chatType: 'single' | 'group', userId: string, prompt: string, onEvent: (ev: AgentEvent) => void): 'started' | 'queued' | 'queue-full' | 'shutdown'; answerPendingAsk(chatKey: string, text: string): 'answered' | 'invalid_numeric' | 'none'; hasPendingAsk(chatKey: string): boolean; expireStaleAsk(chatKey: string): boolean; closeAll(): Promise<void>; isShuttingDown(): boolean }`
 
-- [ ] **Step 1: 写失败测试**（`tests/unit/manager.test.ts`；fake claude 注入 + 压缩时序）
+- [x] **Step 1: 写失败测试**（`tests/unit/manager.test.ts`；fake claude 注入 + 压缩时序）
 
 ```ts
 import { test, expect } from 'bun:test';
@@ -1217,9 +1217,9 @@ test('每用户并发帽：同用户第 4 个会话的消息排队（前 3 在�
 });
 ```
 
-- [ ] **Step 2: 跑测确认 FAIL** — Run: `bun test tests/unit/manager.test.ts`
+- [x] **Step 2: 跑测确认 FAIL** — Run: `bun test tests/unit/manager.test.ts`
   Expected: FAIL（模块不存在）
-- [ ] **Step 3: 实现 `src/agent/manager.ts`**
+- [x] **Step 3: 实现 `src/agent/manager.ts`**
 
 ```ts
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -1661,9 +1661,9 @@ export class AgentManager {
 ```
 
 （实现纪律：① `submit` 的 `onEvent` 类型为 `AgentEventHandler`（可返回 Promise）——manager 对终态事件 `await`（终帧落定才放行下一回合）、对 text_delta `void`；② `scheduleAfterRelease` 的批量回采用**最新**排队消息的 onEvent（其闭包绑最新 replyTo——WeCom 回执句柄以最新回调最可能仍有效；与 feishubot F1「首条上下文」不同，属平台差异的显式选择，PR 描述须提及）；③ 每 chat 队列因全局/用户帽排队时，靠 `scheduleAfterRelease` 的跨 chat FIFO 提升唤醒——没有它排队 chat 会饿死（plan 评审 F1）。）
-- [ ] **Step 4: 跑测确认 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration`
+- [x] **Step 4: 跑测确认 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration`
   Expected: PASS（fake claude 子进程真实 spawn/收割被验证）
-- [ ] **Step 5: Commit** — `git add src/agent/manager.ts tests/unit/manager.test.ts && git commit -m "feat(agent): spawn/resume/queue/reap manager with absolute turn timeout and pending asks"`
+- [x] **Step 5: Commit** — `git add src/agent/manager.ts tests/unit/manager.test.ts && git commit -m "feat(agent): spawn/resume/queue/reap manager with absolute turn timeout and pending asks"`
 
 ---
 
@@ -1687,7 +1687,7 @@ export class AgentManager {
   - `interface BotHandler { register(): void; stop?(): Promise<void> }`（`src/gateway.ts` 导出）
   - `createGateway(workspace, transportOverrides?, agentOverrides?: { claudeCommand?; idleTtlMs?; turnTimeoutMs?; refreshIntervalMs?; maxConcurrentTurns? })`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
   `tests/unit/agent-handler.test.ts`：
 
@@ -1911,9 +1911,9 @@ test('agent 回复失败传播进 Gateway 状态（lastError 持久化，不吞�
 });
 ```
 
-- [ ] **Step 2: 跑测确认 FAIL** — Run: `bun test tests/unit/agent-handler.test.ts tests/unit/gateway-fatal.test.ts`
+- [x] **Step 2: 跑测确认 FAIL** — Run: `bun test tests/unit/agent-handler.test.ts tests/unit/gateway-fatal.test.ts`
   Expected: FAIL（handler 模块不存在；Gateway 构造签名不认 handler）
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
   `src/handlers/agent.ts`：
 
@@ -2221,9 +2221,9 @@ export async function createGateway(workspace: string, overrides: Partial<Transp
 ```
 
   删除：`src/handlers/echo.ts`、`tests/integration/echo.test.ts`；`src/gateway.ts` 顶部 EchoHandler import 移除。gateway-fatal.test.ts 第一个用例补 `handler: { register() {} }`。
-- [ ] **Step 4: 跑测确认 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration`
+- [x] **Step 4: 跑测确认 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration`
   Expected: PASS（transport.test.ts 的 kicked-恢复用例走 recorder 不经 handler，不受影响；cli.test.ts 不依赖 echo——若 start 轮询语义受 handler 影响，按失败信息修）
-- [ ] **Step 5: Commit** — `git add -A && git commit -m "feat(agent): WeCom stream bridge handler with throttle/rate/timeout mapping; gateway wires BotHandler; remove echo"`
+- [x] **Step 5: Commit** — `git add -A && git commit -m "feat(agent): WeCom stream bridge handler with throttle/rate/timeout mapping; gateway wires BotHandler; remove echo"`
 
 ---
 

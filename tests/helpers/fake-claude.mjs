@@ -24,6 +24,15 @@ appendFileSync(join(DIR, 'argv.jsonl'), JSON.stringify({
 process.on('exit', () => {
   appendFileSync(join(DIR, 'exit.jsonl'), JSON.stringify({ pid: process.pid, ts: Date.now() }) + '\n');
 });
+// 信号终止不触发 'exit' 事件——收割梯子的 SIGINT/SIGTERM 路径需要显式落记录
+let signalLogged = false;
+const logSignalExit = (sig) => {
+  if (signalLogged) return;
+  signalLogged = true;
+  appendFileSync(join(DIR, 'exit.jsonl'), JSON.stringify({ pid: process.pid, ts: Date.now(), signal: sig }) + '\n');
+};
+process.on('SIGINT', () => { logSignalExit('SIGINT'); process.exit(130); });
+process.on('SIGTERM', () => { logSignalExit('SIGTERM'); process.exit(143); });
 
 const sessionId = resumeId ?? `fake-sid-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 const out = (obj) => process.stdout.write(JSON.stringify(obj) + '\n');
