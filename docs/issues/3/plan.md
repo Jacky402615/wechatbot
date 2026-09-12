@@ -241,7 +241,7 @@ export class AccessGate {
   - `export function welcomeText(): string`
   - `export function statusText(snap: { connected: boolean; authenticated: boolean; admins: readonly string[]; approved: readonly string[]; groups: readonly string[]; activeSessions: number; inFlight: number }): string`
 
-- [ ] **Step 1: Write the failing test**（`tests/unit/commands.test.ts`）
+- [x] **Step 1: Write the failing test**（`tests/unit/commands.test.ts`）
 
 ```ts
 import { test, expect } from 'bun:test';
@@ -283,8 +283,8 @@ test('文案：REJECTION_TEXT 不含命令字样；help/welcome/status 渲染（
 });
 ```
 
-- [ ] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/unit/commands.test.ts` Expected: FAIL（module not found）
-- [ ] **Step 3: Write the minimal implementation**（`src/commands.ts`）
+- [x] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/unit/commands.test.ts` Expected: FAIL（module not found）
+- [x] **Step 3: Write the minimal implementation**（`src/commands.ts`）
 
 ```ts
 export interface ParsedCommand { name: string; args: string }
@@ -340,8 +340,8 @@ export function statusText(snap: { connected: boolean; authenticated: boolean; a
 }
 ```
 
-- [ ] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/unit/commands.test.ts` Expected: PASS（3 tests）
-- [ ] **Step 5: Commit** — `git add src/commands.ts tests/unit/commands.test.ts && git commit -m "W3: command parsing, mention stripping with token boundary, user-facing copy"`
+- [x] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/unit/commands.test.ts` Expected: PASS（3 tests）
+- [x] **Step 5: Commit** — `git add src/commands.ts tests/unit/commands.test.ts && git commit -m "W3: command parsing, mention stripping with token boundary, user-facing copy"`
 
 ### Task 3: config.ts 增 `groupMentionName` 键
 
