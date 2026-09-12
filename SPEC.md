@@ -94,9 +94,10 @@ WeCom 智能机器人 gateway，长连接模式。镜像 feishubot 的角色：�
   命令永不进 agent 会话；陌生人/拒绝者的任何输入（含命令）只得拒绝文案，不披露命令面。
   一次入站帧恰好一次 access 快照加载——gate/命令//status 共用同一版本（热编辑不撕裂单帧授权）。
 - `access.json`（`.bot/`）：`{admin, approved, rejected, groups}` 四键可选字符串数组
-  （列表内唯一；缺失被幂等树治愈为 `{}` deny-all；不可读/未知键/非法形状启动即
-  AccessError（⊂ConfigError）响亮失败）。逐帧热重读；运行期损坏沿用 last-known-good +
-  ERROR 日志。tier 优先级 admin > rejected > approved；rejected 与 unknown 同文案。
+  （列表内唯一、单 id ≤128 utf8 字节——/status 名单渲染的字节界；缺失被幂等树治愈为 `{}`
+  deny-all；不可读/未知键/非法形状启动即 AccessError（⊂ConfigError）响亮失败）。逐帧热重读；
+  运行期损坏沿用 last-known-good + ERROR 日志。tier 优先级 admin > rejected > approved；
+  rejected 与 unknown 同文案。
 - p2p：非 admin/approved 发送者 → 拒绝文案（notice 一次性流，预算耗尽即丢）、无会话生成。
 - 群：仅 `groups` allowlist（chatid）内的 @-提及消息处理（`config.json groupMentionName`
   精确 token 边界匹配后剥离——`@botbot` 不命中 `@bot`）；groups 非空而缺名启动即拒；
@@ -104,10 +105,12 @@ WeCom 智能机器人 gateway，长连接模式。镜像 feishubot 的角色：�
   （v1；rejected 除外）。
 - 命令：`/new`（中止在跑回合 + 闭会话档 + 清队列 + 回执）、`/stop`（中止 + 清队列、保留
   会话档；在跑/中止中（stopped/stopping）以中止终帧「已停止当前回合」为唯一回执，idle 时
-  幂等提示）、`/status`（仅 admin 单聊：连接态（connected+authenticated）+ 三名单 +
-  活跃会话 + 进行中回合）、`/help`。未知命令 → 帮助文案。命令名大小写归一（/STOP = /stop）。
+  幂等提示——终态已在途的回合按 idle 回执，不与在途终帧抢所有权）、`/status`（仅 admin
+  单聊：连接态（connected+authenticated）+ 三名单（渲染封顶前 20 项 + 总数）+ 活跃会话
+  （含损坏档披露）+ 进行中回合）、`/help`。未知命令 → 帮助文案。命令名大小写归一（/STOP = /stop）。
   中止实现：manager.abortChat 三态（stopped/stopping/idle）+ 哨兵 + SIGINT + 收割梯子，
-  EOF 失败路径发 turn_failed('turn aborted by user command')。
+  EOF 失败路径发 turn_failed('turn aborted by user command')——中止哨兵压过超时/ask 过期
+  哨兵（用户命令拥有终态文案）。
 - enter_chat（每日首个单聊进入）：allowed → replyWelcome（欢迎 + 命令清单）；rejected/unknown
   → 拒绝文案作欢迎。5 s 平台窗内发出（access 同步判定、零前置 await）；群 enter_chat 忽略；
   欢迎不走会话限流器（独立 aibot_respond_welcome_msg 通道；平台拒绝 errcode≠0 ⇒ Error 规整上抛）。

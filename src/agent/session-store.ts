@@ -124,7 +124,8 @@ export class SessionStore {
     this.write({ ...s, status: 'closed' });
   }
 
-  /** /status 数据面：活动档计数 + 损坏档计数（code-review F4——损坏可见，不静默吞）。
+  /** /status 数据面：活动档计数 + 损坏档计数（code-review F4/R2-F3——损坏可见，不静默吞）。
+   *  形状校验：合法 JSON 但非 ChatSession 形状（缺 chatKey/status 或 status 未知）同计损坏。
    *  记录极小，读目录逐档判定（W2 D4 无启动清扫同因）。 */
   listActive(): { active: number; corrupt: number } {
     let active = 0;
@@ -133,9 +134,12 @@ export class SessionStore {
       if (!f.endsWith('.json')) continue;
       try {
         const s = JSON.parse(readFileSync(join(this.sessionsDir, f), 'utf8')) as ChatSession;
-        if (s && s.status === 'active') active += 1;
+        const wellFormed = !!s && typeof s === 'object' && typeof s.chatKey === 'string'
+          && (s.status === 'active' || s.status === 'closed');
+        if (!wellFormed) corrupt += 1;
+        else if (s.status === 'active') active += 1;
       } catch {
-        corrupt += 1; // 坏档不计活跃（get 同款严格丢语义）——但计入 corrupt 披露面
+        corrupt += 1; // 非法 JSON——坏档不计活跃（get 同款严格丢语义），计入 corrupt 披露面
       }
     }
     return { active, corrupt };

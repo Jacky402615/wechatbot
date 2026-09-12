@@ -25,7 +25,10 @@ export class AccessError extends ConfigError {}
 
 const KEYS = ['admin', 'approved', 'rejected', 'groups'] as const;
 
-/** 严格形状校验：未知键、非字符串数组、空串、列表内重复 ⇒ AccessError（W1 严格配置同构） */
+/** 严格形状校验：未知键、非字符串数组、空串、列表内重复、单 id 超 128 字节 ⇒ AccessError
+ *  （W1 严格配置同构；id 字节上限使 /status 名单渲染（前 20 项）有确定性字节界——code-review R2-F2） */
+const MAX_ID_BYTES = 128;
+
 export function parseAccess(text: string, path: string): AccessState {
   let raw: Record<string, unknown>;
   try {
@@ -51,6 +54,8 @@ export function parseAccess(text: string, path: string): AccessState {
     });
     const dup = ids.find((id, i) => ids.indexOf(id) !== i);
     if (dup !== undefined) throw new AccessError(`duplicate entry "${dup}" in ${key} of ${path}`);
+    const tooLong = ids.find((id) => Buffer.byteLength(id, 'utf8') > MAX_ID_BYTES);
+    if (tooLong !== undefined) throw new AccessError(`entry in ${key} exceeds ${MAX_ID_BYTES} utf8 bytes in ${path}`);
     state[key] = ids;
   }
   return state;

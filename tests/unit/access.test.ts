@@ -66,3 +66,10 @@ test('文件缺失 ⇒ ENOENT 同为 AccessError（启动响亮）', () => {
   const dir = tmp();
   expect(() => new AccessGate(join(dir, '.bot', 'access.json'))).toThrow(AccessError);
 });
+
+test('id 字节上限（code-review R2-F2）：单 id 超 128 utf8 字节 ⇒ AccessError（/status 名单渲染的字节界）', () => {
+  const dir = tmp(); write(dir, { approved: ['x'.repeat(128)] });   // 恰 128 字节——合法
+  expect(new AccessGate(join(dir, '.bot', 'access.json')).load().tierOf('x'.repeat(128))).toBe('approved');
+  write(dir, { approved: ['好'.repeat(65)] });                       // 65 × 3 字节 = 195 > 128
+  expect(() => new AccessGate(join(dir, '.bot', 'access.json'))).toThrow(AccessError);
+});

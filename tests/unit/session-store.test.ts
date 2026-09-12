@@ -81,3 +81,12 @@ test('listActive：损坏档计入 corrupt（code-review F4）——active 与�
   store.close('single:u1');
   expect(store.listActive()).toEqual({ active: 1, corrupt: 1 });
 });
+
+test('listActive 形状坏档（code-review R2-F3）：合法 JSON 但非 ChatSession 形状同计 corrupt', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'wb-ss-shape-'));
+  const store = new SessionStore(join(dir, 'sessions'));
+  store.create('single:u1', 'single');
+  writeFileSync(join(dir, 'sessions', Buffer.from('single:u2', 'utf8').toString('base64url') + '.json'), '{}');            // 缺 chatKey/status
+  writeFileSync(join(dir, 'sessions', Buffer.from('single:u3', 'utf8').toString('base64url') + '.json'), '{"chatKey":"k","status":"weird"}'); // 未知 status
+  expect(store.listActive()).toEqual({ active: 1, corrupt: 2 });
+});

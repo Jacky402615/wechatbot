@@ -77,6 +77,9 @@ interface BusyTurn {
   askDeadline: NodeJS.Timeout | null;
   /** 收割中：槽位保留至收割完成（R2-F3——先释放会让新旧子进程重叠） */
   terminating: boolean;
+  /** 本代终态事件已发出（markFinished 单点标记——code-review R2-F4：此后 /stop 按 idle 回执，
+   *  不与在途终帧抢所有权） */
+  terminalEmitted: boolean;
 }
 
 /** 有界收割梯子（feishubot 实核：claude --print 等 stdin EOF——不收即每回合泄漏进程） */
@@ -228,6 +231,7 @@ export class AgentManager {
     this.queues.delete(chatKey);
     const turn = this.busy.get(chatKey);
     if (!turn) return { status: 'idle', dropped };
+    if (turn.terminalEmitted) return { status: 'idle', dropped }; // 终帧已在途（R2-F4）——/stop 按无在跑回笔回执，不抢在途终态
     if (turn.terminating) {
       // 超时/ask 过期已在收割中的回合：补记中止哨兵——用户命令拥有终态文案
       // （EOF 路径 abortedProcs 先判，压过 timedOutProcs/expiredAskProcs——code-review F2；
@@ -380,7 +384,14 @@ export class AgentManager {
       await this.runTurnInner(chatKey, chatType, userIds, prompt, onEvent, freshRetry, {
         onSpawned: (p) => { ctx.proc = p; },
         onText: (t) => { ctx.fullText += t; },
-        markFinished: () => { ctx.turnFinished = true; },
+        markFinished: () => {
+          ctx.turnFinished = true;
+          // code-review R2-F4：终态在途标记——此后到达的 /stop 不再声称拥有终帧（按 idle 回执）
+          if (ctx.proc) {
+            const t = this.busy.get(chatKey);
+            if (t?.proc === ctx.proc) t.terminalEmitted = true;
+          }
+        },
         getText: () => ctx.fullText,
       });
       return;
@@ -421,7 +432,7 @@ export class AgentManager {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     hooks.onSpawned(proc);
-    this.busy.set(chatKey, { proc, initiators: [...new Set(userIds)], deadline: null, askDeadline: null, terminating: false });
+    this.busy.set(chatKey, { proc, initiators: [...new Set(userIds)], deadline: null, askDeadline: null, terminating: false, terminalEmitted: false });
     this.armDeadline(chatKey, proc);
     this.deps.logger.info('turn starting', { chatKey, resume: resumeId ?? '(fresh)', pid: proc.pid });
     // code-review C5/R2-C3 + pr-review R2-P2：stdin 异步错误（EPIPE）——哨兵化拒后续写，
