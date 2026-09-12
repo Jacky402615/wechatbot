@@ -822,7 +822,7 @@ export interface TransportOptions {
 }
 ```
 
-- [ ] **Step 1: 写失败测试 `tests/integration/transport.test.ts`**
+- [x] **Step 1: 写失败测试 `tests/integration/transport.test.ts`**
 
 ```ts
 import { test, expect } from 'bun:test';
@@ -956,8 +956,8 @@ test('错误事件被记录且不吞（feishubot #62）：SDK error 事件转发
 
 （`emitTestError` 是 adapter 上仅测试用的后门：`emitTestError(err: Error): void` 直接把错误送进 handler 链——生产代码不调用。）
 
-- [ ] **Step 2: 验证 FAIL** — Run: `bun test tests/integration/transport.test.ts` Expected: FAIL — adapter 模块不存在。
-- [ ] **Step 3: 先写 `src/transport/types.ts`（内容即上方 Interfaces 块，逐字落地），再写 `src/transport/wecom-sdk-adapter.ts`**
+- [x] **Step 2: 验证 FAIL** — Run: `bun test tests/integration/transport.test.ts` Expected: FAIL — adapter 模块不存在。
+- [x] **Step 3: 先写 `src/transport/types.ts`（内容即上方 Interfaces 块，逐字落地），再写 `src/transport/wecom-sdk-adapter.ts`**
 
 ```ts
 import { WSClient, WSAuthFailureError, type WsFrame, type WsFrameHeaders } from '@wecom/aibot-node-sdk';
@@ -1093,8 +1093,8 @@ function refFromFrame(frame: WsFrame): ReplyRef {
 
 **实现注意（必须先跑一次再定稿 SPEC 措辞）**：SDK 的 `WSAuthFailureError` 抛出通道（error 事件 vs 异步 throw）与 `replyStream` 收据帧结构以上述集成测试实测为准。若 AC1 测试发现 SDK 用 `unhandledException` 而非 error 事件传递认证耗尽，则在 `start()` 里额外挂 `process.on('uncaughtException')` 作用域化捕获（仅 start 窗口内），并把实际通道记录进 SPEC.md。**已实核（2026-09-13，1.0.7 tarball）**：`WSClient`/`WSAuthFailureError` 为运行时导出、`WsFrame`/`WsFrameHeaders` 为类型导出、`disconnect(): void` 存在——adapter 的 import 清单安全。
 
-- [ ] **Step 4: 验证 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration` Expected: 全绿（transport 7 项含被踢后继续服务断言；若 SDK 实际行为与假设不符，修 adapter 至测试表达的行为为准，同步记录差异）。
-- [ ] **Step 5: Commit** — `git add src/transport tests/integration/transport.test.ts && git commit -m "feat(transport): wecom sdk adapter behind own transport port"`
+- [x] **Step 4: 验证 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration` Expected: 全绿（transport 7 项含被踢后继续服务断言；若 SDK 实际行为与假设不符，修 adapter 至测试表达的行为为准，同步记录差异）。
+- [x] **Step 5: Commit** — `git add src/transport tests/integration/transport.test.ts && git commit -m "feat(transport): wecom sdk adapter behind own transport port"`
 
 ### Task 8: EchoHandler + Gateway（AC4 闭环）
 
