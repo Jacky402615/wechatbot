@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { WecomSdkTransport, type TransportEvent, type TransportHandler } from '../../src/transport/wecom-sdk-adapter';
+import { WecomSdkTransport, type TransportEvent, type TransportHandler, type InboundEnterChat } from '../../src/transport/wecom-sdk-adapter';
 import { MockWecomServer } from '../helpers/mock-wecom-server';
 
 const FAST = { reconnectInterval: 50, heartbeatInterval: 200, requestTimeout: 2000, resubscribeDelayMs: 150 };
@@ -167,3 +167,34 @@ test('被踢后凭据失效：认证耗尽不无限重订阅（fatal 识别穿�
   await t.stop();
   await srv.stop();
 }, 15_000);
+
+test('W3：enterChat/feedbackEvent 事件到达 handler；replyWelcome 走 aibot_respond_welcome_msg；connectionStatus 双字段；平台拒绝 reject', async () => {
+  const srv = new MockWecomServer();
+  const { url } = await srv.start();
+  const t = new WecomSdkTransport({ botId: 'b', secret: 's', wsUrl: url, ...FAST });
+  const rec = recorder();
+  t.on(rec.push);
+  await t.start();
+  expect(t.connectionStatus()).toEqual({ connected: true, authenticated: true });
+  const t0 = Date.now();
+  srv.pushEnterChat('req-ec1', { msgid: 'ec1', userId: 'u9' });
+  srv.pushFeedbackEvent('req-fb1', { msgid: 'fb1', userId: 'u9' });
+  await new Promise((r) => setTimeout(r, 300));
+  const ec = rec.events.find((e) => e.type === 'enterChat') as { type: 'enterChat'; message: InboundEnterChat } | undefined;
+  expect(ec).toBeDefined();
+  expect(ec!.message.userId).toBe('u9');
+  expect(ec!.message.chatType).toBe('single');
+  expect(ec!.message.replyTo.reqId).toBe('req-ec1');
+  expect(rec.events.some((e) => e.type === 'feedbackEvent')).toBe(true);
+  await t.replyWelcome(ec!.message.replyTo, '欢迎');
+  expect(srv.welcomeFrames.length).toBe(1);
+  expect((srv.welcomeFrames[0]!.body as { text?: { content?: string } }).text?.content).toBe('欢迎');
+  expect(Date.now() - t0).toBeLessThan(5_000);
+  // R3-F3：平台拒绝（errcode≠0）⇒ replyWelcome reject（handler 的 ERROR 审计依赖此契约）
+  srv.welcomeErrcode = 40097;
+  await expect(t.replyWelcome(ec!.message.replyTo, '再发一次')).rejects.toThrow(/errcode=40097/);
+  srv.welcomeErrcode = 0;
+  await t.stop();
+  expect(t.connectionStatus()).toEqual({ connected: false, authenticated: false });
+  await srv.stop();
+});

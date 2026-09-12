@@ -15,6 +15,8 @@ class FakeTransport implements WeComTransport {
   async start(): Promise<void> { this.emit({ type: 'authenticated' }); }
   async stop(): Promise<void> { this.emit({ type: 'disconnected', reason: 'stopped' }); }
   async replyStream(): Promise<void> { await this.replyStreamImpl(); }
+  async replyWelcome(): Promise<void> {}
+  connectionStatus(): { connected: boolean; authenticated: boolean } { return { connected: true, authenticated: true }; }
   isConnected(): boolean { return true; }
   on(handler: TransportHandler): void { this.handlers.push(handler); }
   emit(event: TransportEvent): void { for (const h of this.handlers) h(event); }

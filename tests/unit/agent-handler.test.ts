@@ -10,6 +10,8 @@ import { BotLogger } from '../../src/logger';
 class FakeTransport implements WeComTransport {
   sent: Array<{ streamId: string; content: string; finish: boolean }> = [];
   replyImpl: (content: string, finish: boolean) => Promise<void> = async () => undefined;
+  welcomes: Array<{ reqId: string; content: string }> = [];
+  welcomeImpl: (content: string) => Promise<void> = async () => undefined;
   private handlers: TransportHandler[] = [];
   async start() {} async stop() {} isConnected() { return true; }
   on(h: TransportHandler) { this.handlers.push(h); }
@@ -18,6 +20,8 @@ class FakeTransport implements WeComTransport {
     this.sent.push({ streamId, content, finish });
     await this.replyImpl(content, finish);
   }
+  async replyWelcome(ref: ReplyRef, content: string) { this.welcomes.push({ reqId: ref.reqId, content }); await this.welcomeImpl(content); }
+  connectionStatus() { return { connected: true, authenticated: true }; }
 }
 
 class FakeManager {

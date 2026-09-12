@@ -5,6 +5,9 @@ export interface MockFrame { cmd?: string; headers: { req_id: string }; body?: u
 export class MockWecomServer {
   sentFrames: MockFrame[] = [];
   subscribeTimes: number[] = [];   // 每次 aibot_subscribe 到达的 Date.now()——soak 量退避用
+  welcomeFrames: MockFrame[] = [];
+  /** R3-F3：welcome 回执错误模式——非 0 时对 aibot_respond_welcome_msg 回 errcode（测 adapter 拒绝路径） */
+  welcomeErrcode = 0;
   private wss: WebSocketServer | null = null;
   private port = 0;
   private sockets = new Set<WebSocket>();
@@ -34,6 +37,13 @@ export class MockWecomServer {
         }
         if (frame.cmd === 'ping') this.pings += 1;
         if (frame.cmd === 'aibot_respond_msg') this.sentFrames.push(frame);
+        if (frame.cmd === 'aibot_respond_welcome_msg') {
+          this.welcomeFrames.push(frame);
+          if (this.welcomeErrcode !== 0) {
+            ws.send(JSON.stringify({ headers: { req_id: frame.headers.req_id }, errcode: this.welcomeErrcode, errmsg: 'welcome rejected' }));
+            return;
+          }
+        }
         ws.send(JSON.stringify({ headers: { req_id: frame.headers.req_id }, errcode: 0, errmsg: 'ok' }));
       });
       ws.on('close', () => this.sockets.delete(ws));
@@ -55,6 +65,31 @@ export class MockWecomServer {
         ...(msg.chatType === 'group' && msg.chatid ? { chatid: msg.chatid } : {}),
         from: { userid: msg.userId }, msgtype: 'text', text: { content: msg.content },
         create_time: Math.floor(Date.now() / 1000),
+      },
+    });
+  }
+
+  pushEnterChat(reqId: string, msg: { msgid: string; userId: string; chatType?: 'single' | 'group'; chatid?: string }): void {
+    this.broadcast({
+      cmd: 'aibot_event_callback',
+      headers: { req_id: reqId },
+      body: {
+        msgid: msg.msgid, aibotid: 'bot-mock', chattype: msg.chatType ?? 'single',
+        ...(msg.chatType === 'group' && msg.chatid ? { chatid: msg.chatid } : {}),
+        from: { userid: msg.userId }, msgtype: 'event', event: { eventtype: 'enter_chat' },
+        create_time: Math.floor(Date.now() / 1000),
+      },
+    });
+  }
+
+  pushFeedbackEvent(reqId: string, msg: { msgid: string; userId: string; chatType?: 'single' | 'group'; chatid?: string }): void {
+    this.broadcast({
+      cmd: 'aibot_event_callback',
+      headers: { req_id: reqId },
+      body: {
+        msgid: msg.msgid, aibotid: 'bot-mock', chattype: msg.chatType ?? 'single',
+        ...(msg.chatType === 'group' && msg.chatid ? { chatid: msg.chatid } : {}),
+        from: { userid: msg.userId }, msgtype: 'event', event: { eventtype: 'feedback_event' },
       },
     });
   }

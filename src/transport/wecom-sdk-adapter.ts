@@ -1,9 +1,9 @@
 import { WSClient, WSAuthFailureError, type WsFrame, type WsFrameHeaders } from '@wecom/aibot-node-sdk';
 import type {
-  InboundTextMessage, ReplyRef, TransportEvent, TransportHandler, TransportOptions, WeComTransport,
+  InboundEnterChat, InboundFeedbackEvent, InboundTextMessage, ReplyRef, TransportEvent, TransportHandler, TransportOptions, WeComTransport,
 } from './types';
 
-export type { InboundTextMessage, ReplyRef, TransportEvent, TransportHandler, TransportOptions, WeComTransport };
+export type { InboundEnterChat, InboundFeedbackEvent, InboundTextMessage, ReplyRef, TransportEvent, TransportHandler, TransportOptions, WeComTransport };
 
 const START_TIMEOUT_MS = 30_000;
 const DEFAULT_RESUBSCRIBE_DELAY_MS = 5_000;
@@ -13,6 +13,7 @@ export class WecomSdkTransport implements WeComTransport {
   private handlers: TransportHandler[] = [];
   private stopped = false;
   private resubscribeTimer: ReturnType<typeof setTimeout> | null = null;
+  private authenticatedFlag = false;
 
   constructor(private opts: TransportOptions) {}
 
@@ -50,6 +51,7 @@ export class WecomSdkTransport implements WeComTransport {
         reject(err);
       };
       client.on('authenticated', () => {
+        this.authenticatedFlag = true;
         if (settled) { this.emit({ type: 'authenticated' }); return; }
         clearTimeout(timer);
         settled = true;
@@ -57,7 +59,10 @@ export class WecomSdkTransport implements WeComTransport {
         resolve();
       });
       client.on('connected', () => this.emit({ type: 'connected' }));
-      client.on('disconnected', (reason: string) => this.emit({ type: 'disconnected', reason }));
+      client.on('disconnected', (reason: string) => {
+        this.authenticatedFlag = false;
+        this.emit({ type: 'disconnected', reason });
+      });
       client.on('reconnecting', (attempt: number) => this.emit({ type: 'reconnecting', attempt }));
       client.on('error', (err: Error) => {
         this.emit({ type: 'error', error: err });
@@ -85,6 +90,31 @@ export class WecomSdkTransport implements WeComTransport {
             userId: body.from?.userid ?? 'unknown',
             content: body.text?.content ?? '',
             replyTo: refFromFrame(frame),
+          },
+        });
+      });
+      client.on('event.enter_chat', (frame: WsFrame) => {
+        const body = frame.body as unknown as { msgid: string; chattype?: 'single' | 'group'; chatid?: string; from: { userid: string } };
+        this.emit({
+          type: 'enterChat',
+          message: {
+            msgid: body.msgid,
+            chatType: body.chattype ?? 'single',
+            ...(body.chattype === 'group' && body.chatid ? { chatId: body.chatid } : {}),
+            userId: body.from?.userid ?? 'unknown',
+            replyTo: refFromFrame(frame),
+          },
+        });
+      });
+      client.on('event.feedback_event', (frame: WsFrame) => {
+        const body = frame.body as unknown as { msgid: string; chattype?: 'single' | 'group'; chatid?: string; from: { userid: string } };
+        this.emit({
+          type: 'feedbackEvent',
+          message: {
+            msgid: body.msgid,
+            chatType: body.chattype ?? 'single',
+            ...(body.chattype === 'group' && body.chatid ? { chatId: body.chatid } : {}),
+            userId: body.from?.userid ?? 'unknown',
           },
         });
       });
@@ -134,6 +164,7 @@ export class WecomSdkTransport implements WeComTransport {
   }
 
   private teardownClient(): void {
+    this.authenticatedFlag = false;
     try {
       this.client?.disconnect();
     } catch (e) {
@@ -151,8 +182,32 @@ export class WecomSdkTransport implements WeComTransport {
     }
   }
 
+  async replyWelcome(ref: ReplyRef, content: string): Promise<void> {
+    if (!this.client) throw new Error('transport not started');
+    const frame: WsFrameHeaders = { headers: { req_id: ref.reqId } };
+    try {
+      const receipt = await this.client.replyWelcome(frame, { msgtype: 'text', text: { content } });
+      if (receipt.errcode !== undefined && receipt.errcode !== 0) {
+        throw new Error(`replyWelcome rejected: errcode=${receipt.errcode} errmsg=${receipt.errmsg}`);
+      }
+    } catch (e) {
+      // SDK 实测（index.cjs.js handleReplyAck）：errcode≠0 时以**原始 WsFrame** reject，
+      // 不是 Error——在此规整为带 errcode 的 Error（handler 的 ERROR 审计契约依赖可读消息）
+      if (e instanceof Error) throw e;
+      const f = e as { errcode?: number; errmsg?: string };
+      if (typeof f.errcode === 'number') {
+        throw new Error(`replyWelcome rejected: errcode=${f.errcode} errmsg=${f.errmsg}`);
+      }
+      throw new Error(`replyWelcome failed: ${String(e)}`);
+    }
+  }
+
   isConnected(): boolean {
     return this.client?.isConnected ?? false;
+  }
+
+  connectionStatus(): { connected: boolean; authenticated: boolean } {
+    return { connected: this.isConnected(), authenticated: this.authenticatedFlag };
   }
 
   on(handler: TransportHandler): void {

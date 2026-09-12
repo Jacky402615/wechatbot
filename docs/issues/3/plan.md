@@ -422,7 +422,7 @@ parseConfig 尾部（`claudeModel` 块之后）追加：
   - `WeComTransport` 增 `replyWelcome(ref: ReplyRef, content: string): Promise<void>` 与 `connectionStatus(): { connected: boolean; authenticated: boolean }`（plan 评审 R1-F3：/status 的已声明依赖——adapter 内部跟踪 authenticated 标志，'authenticated' 事件置 true、disconnected/teardown 置 false）
   - Mock: `pushEnterChat(reqId, msg)`、`pushFeedbackEvent(reqId, msg)`、`welcomeFrames: MockFrame[]`
 
-- [ ] **Step 1: Write the failing test**（追加进 `tests/integration/transport.test.ts`，沿用该文件既有 transport 装配模式）
+- [x] **Step 1: Write the failing test**（追加进 `tests/integration/transport.test.ts`，沿用该文件既有 transport 装配模式）
 
 ```ts
 test('W3：enterChat/feedbackEvent 事件到达 handler；replyWelcome 走 aibot_respond_welcome_msg；connectionStatus 双字段', async () => {
@@ -459,8 +459,8 @@ test('W3：enterChat/feedbackEvent 事件到达 handler；replyWelcome 走 aibot
 
 （import 区补 `import type { InboundEnterChat } from '../../src/transport/types';`）
 
-- [ ] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/integration/transport.test.ts` Expected: FAIL（类型/方法不存在——typecheck 亦红）
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/integration/transport.test.ts` Expected: FAIL（类型/方法不存在——typecheck 亦红）
+- [x] **Step 3: Write the minimal implementation**
 
 `src/transport/types.ts` 追加（`InboundTextMessage` 之后）：
 
@@ -585,8 +585,8 @@ export interface InboundFeedbackEvent {
   connectionStatus() { return { connected: true, authenticated: true }; }
 ```
 
-- [ ] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/integration/transport.test.ts && bun run typecheck` Expected: PASS（typecheck 含 agent-handler fake 迁移）
-- [ ] **Step 5: Commit** — `git add src/transport/types.ts src/transport/wecom-sdk-adapter.ts tests/helpers/mock-wecom-server.ts tests/unit/agent-handler.test.ts tests/integration/transport.test.ts && git commit -m "W3: transport enterChat/feedbackEvent events, replyWelcome (5s window), connectionStatus + fake migration"`
+- [x] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/integration/transport.test.ts && bun run typecheck` Expected: PASS（typecheck 含 agent-handler fake 迁移）
+- [x] **Step 5: Commit** — `git add src/transport/types.ts src/transport/wecom-sdk-adapter.ts tests/helpers/mock-wecom-server.ts tests/unit/agent-handler.test.ts tests/integration/transport.test.ts && git commit -m "W3: transport enterChat/feedbackEvent events, replyWelcome (5s window), connectionStatus + fake migration"`
 
 ### Task 5: manager.abortChat + 会话/并发计数面
 
