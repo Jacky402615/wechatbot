@@ -1093,6 +1093,12 @@ function refFromFrame(frame: WsFrame): ReplyRef {
 
 **实现注意（必须先跑一次再定稿 SPEC 措辞）**：SDK 的 `WSAuthFailureError` 抛出通道（error 事件 vs 异步 throw）与 `replyStream` 收据帧结构以上述集成测试实测为准。若 AC1 测试发现 SDK 用 `unhandledException` 而非 error 事件传递认证耗尽，则在 `start()` 里额外挂 `process.on('uncaughtException')` 作用域化捕获（仅 start 窗口内），并把实际通道记录进 SPEC.md。**已实核（2026-09-13，1.0.7 tarball）**：`WSClient`/`WSAuthFailureError` 为运行时导出、`WsFrame`/`WsFrameHeaders` 为类型导出、`disconnect(): void` 存在——adapter 的 import 清单安全。
 
+**执行期实测记录（2026-09-13，Task 7 落地时，SPEC 重连节的数据源）**：
+1. SDK 1.0.7 不传 `logger` 时内部 `this.logger` 为 undefined，`connect()` 即崩——adapter 对 SDK 恒传 logger（无则用 console fallback）。
+2. 被踢路径：SDK 在 `disconnected_event` 后置 `isManualClose=true` 并 terminate socket，**不自动重连**（源码 index.cjs.js L384-400）——按计划风险预案，adapter 在 `kicked` 事件后延迟重新订阅（`resubscribeDelayMs`，默认 5000 ms，防与顶替者互踢）；认证耗尽类致命错误不重试。
+3. 认证耗尽经 `error` 事件传递（instanceof `WSAuthFailureError` 捕获验证）——无需 uncaughtException 后门。
+4. 异常断链（kill）走 SDK 内建指数退避（reconnectBaseDelay 1 s、cap 30 s，源码 L220-223）。
+
 - [x] **Step 4: 验证 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration` Expected: 全绿（transport 7 项含被踢后继续服务断言；若 SDK 实际行为与假设不符，修 adapter 至测试表达的行为为准，同步记录差异）。
 - [x] **Step 5: Commit** — `git add src/transport tests/integration/transport.test.ts && git commit -m "feat(transport): wecom sdk adapter behind own transport port"`
 
