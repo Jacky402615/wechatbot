@@ -94,8 +94,9 @@ WeCom 智能机器人 gateway，长连接模式。镜像 feishubot 的角色：�
   命令永不进 agent 会话；陌生人/拒绝者的任何输入（含命令）只得拒绝文案，不披露命令面。
   一次入站帧恰好一次 access 快照加载——gate/命令//status 共用同一版本（热编辑不撕裂单帧授权）。
 - `access.json`（`.bot/`）：`{admin, approved, rejected, groups}` 四键可选字符串数组
-  （列表内唯一、单 id ≤128 utf8 字节——/status 名单渲染的字节界；缺失被幂等树治愈为 `{}`
-  deny-all；不可读/未知键/非法形状启动即 AccessError（⊂ConfigError）响亮失败）。逐帧热重读；
+  （列表内唯一、单 id ≤128 utf8 字节、四列表合计 ≤1000 条——逐帧同步解析的确定性开销界；
+  缺失被幂等树治愈为 `{}` deny-all；不可读/未知键/非法形状/超界启动即
+  AccessError（⊂ConfigError）响亮失败）。逐帧热重读（Set 成员判定）；
   运行期损坏沿用 last-known-good + ERROR 日志。tier 优先级 admin > rejected > approved；
   rejected 与 unknown 同文案。
 - p2p：非 admin/approved 发送者 → 拒绝文案（notice 一次性流，预算耗尽即丢）、无会话生成。

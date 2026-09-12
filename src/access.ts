@@ -25,9 +25,11 @@ export class AccessError extends ConfigError {}
 
 const KEYS = ['admin', 'approved', 'rejected', 'groups'] as const;
 
-/** 严格形状校验：未知键、非字符串数组、空串、列表内重复、单 id 超 128 字节 ⇒ AccessError
- *  （W1 严格配置同构；id 字节上限使 /status 名单渲染（前 20 项）有确定性字节界——code-review R2-F2） */
+/** 严格形状校验：未知键、非字符串数组、空串、列表内重复、单 id 超 128 字节、总条目超 1000
+ *  ⇒ AccessError（W1 严格配置同构；字节与条目双界使逐帧同步解析的每帧开销有确定性上界——
+ *  PR-review P3：热重读不得威胁 enter_chat 5s 窗；Set 去重/成员判定——O(n)） */
 const MAX_ID_BYTES = 128;
+const MAX_TOTAL_ENTRIES = 1000;
 
 export function parseAccess(text: string, path: string): AccessState {
   let raw: Record<string, unknown>;
@@ -44,37 +46,47 @@ export function parseAccess(text: string, path: string): AccessState {
     throw new AccessError(`unknown key(s) ${unknownKeys.join(',')} in ${path} (allowed: ${KEYS.join(',')})`);
   }
   const state = { admin: [], approved: [], rejected: [], groups: [] } as AccessState;
+  let total = 0;
   for (const key of KEYS) {
     const v = raw[key];
     if (v === undefined) continue;
     if (!Array.isArray(v)) throw new AccessError(`${key} must be a string array in ${path}`);
-    const ids = v.map((id) => {
+    const seen = new Set<string>();
+    for (const id of v) {
       if (typeof id !== 'string' || id.trim() === '') throw new AccessError(`${key} entries must be non-empty strings in ${path}`);
-      return id.trim();
-    });
-    const dup = ids.find((id, i) => ids.indexOf(id) !== i);
-    if (dup !== undefined) throw new AccessError(`duplicate entry "${dup}" in ${key} of ${path}`);
-    const tooLong = ids.find((id) => Buffer.byteLength(id, 'utf8') > MAX_ID_BYTES);
-    if (tooLong !== undefined) throw new AccessError(`entry in ${key} exceeds ${MAX_ID_BYTES} utf8 bytes in ${path}`);
-    state[key] = ids;
+      const trimmed = id.trim();
+      if (seen.has(trimmed)) throw new AccessError(`duplicate entry "${trimmed}" in ${key} of ${path}`);
+      seen.add(trimmed);
+      if (Buffer.byteLength(trimmed, 'utf8') > MAX_ID_BYTES) throw new AccessError(`entry in ${key} exceeds ${MAX_ID_BYTES} utf8 bytes in ${path}`);
+      total += 1;
+      if (total > MAX_TOTAL_ENTRIES) throw new AccessError(`access file exceeds ${MAX_TOTAL_ENTRIES} total entries in ${path}`);
+    }
+    state[key] = [...seen];
   }
   return state;
 }
 
-const snapshotOf = (state: AccessState): AccessSnapshot => ({
-  // tier 优先级 admin > rejected > approved（approved+rejected 冲突 ⇒ deny 优先，D2）
-  tierOf(userId) {
-    if (state.admin.includes(userId)) return 'admin';
-    if (state.rejected.includes(userId)) return 'rejected';
-    if (state.approved.includes(userId)) return 'approved';
-    return 'unknown';
-  },
-  groupAllowed(chatId) { return state.groups.includes(chatId); },
-  admin: [...state.admin],
-  approved: [...state.approved],
-  rejected: [...state.rejected],
-  groups: [...state.groups],
-});
+const snapshotOf = (state: AccessState): AccessSnapshot => {
+  // Set 成员判定（PR-review P3）：1000 条目帽下的确定性 O(1) 查询
+  const admin = new Set(state.admin);
+  const rejected = new Set(state.rejected);
+  const approved = new Set(state.approved);
+  const groups = new Set(state.groups);
+  return {
+    // tier 优先级 admin > rejected > approved（approved+rejected 冲突 ⇒ deny 优先，D2）
+    tierOf(userId) {
+      if (admin.has(userId)) return 'admin';
+      if (rejected.has(userId)) return 'rejected';
+      if (approved.has(userId)) return 'approved';
+      return 'unknown';
+    },
+    groupAllowed(chatId) { return groups.has(chatId); },
+    admin: [...state.admin],
+    approved: [...state.approved],
+    rejected: [...state.rejected],
+    groups: [...state.groups],
+  };
+};
 
 /** 每个入站事件 load() 一次；热重读失败沿用 last-known-good + onError（fail-visible，D2）。 */
 export class AccessGate {

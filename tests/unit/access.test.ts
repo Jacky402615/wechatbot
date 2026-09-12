@@ -73,3 +73,15 @@ test('id 字节上限（code-review R2-F2）：单 id 超 128 utf8 字节 ⇒ Ac
   write(dir, { approved: ['好'.repeat(65)] });                       // 65 × 3 字节 = 195 > 128
   expect(() => new AccessGate(join(dir, '.bot', 'access.json'))).toThrow(AccessError);
 });
+
+test('总条目帽（PR-review P3）：四列表合计超 1000 ⇒ AccessError——逐帧解析开销有界', () => {
+  const dir = tmp();
+  const big = Array.from({ length: 600 }, (_, i) => `a${i}`);
+  const big2 = Array.from({ length: 401 }, (_, i) => `b${i}`);
+  write(dir, { approved: big, groups: big2 }); // 1001 条
+  expect(() => new AccessGate(join(dir, '.bot', 'access.json'))).toThrow(AccessError);
+  write(dir, { approved: big, groups: big2.slice(0, 400) }); // 恰 1000 条——合法
+  const snap = new AccessGate(join(dir, '.bot', 'access.json')).load();
+  expect(snap.tierOf('a599')).toBe('approved');
+  expect(snap.groupAllowed('b399')).toBe(true);
+});
