@@ -1,7 +1,8 @@
 # wechatbot
 
-WeCom（企业微信）智能机器人 gateway——长连接模式。本仓库当前为 W1：transport 骨架 + 单聊文本 echo；
-agent 会话层（spawn `claude` per chat）将在后续版本落地。完整行为契约见 [SPEC.md](./SPEC.md)。
+WeCom（企业微信）智能机器人 gateway——长连接模式。每 chat（单聊 per-user / 群聊 per-group）
+一个 `claude` 会话：空闲 TTL 内 `--resume` 续接、流式回传（`finish=true` 收尾）、
+AskUserQuestion 降级为编号文本 + 数字回复。完整行为契约见 [SPEC.md](./SPEC.md)。
 
 ## 安装
 
@@ -40,12 +41,23 @@ wechatbot stop -r /path/to/workspace
 
 前台调试用 `wechatbot run -r <workspace>`。日志在 `<workspace>/.bot/logs/`（JSONL，按日切分）。
 
+### 配置（`<workspace>/.bot/config.json`）
+
+| 键 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `logLevel` | `debug\|info\|warn\|error` | `info` | 日志级别 |
+| `heartbeatInterval` | 整数 >0 | SDK 默认（30s） | WS 心跳间隔（ms） |
+| `maxReconnectAttempts` | -1 或 ≥0 | -1（无限） | 断链重连次数上限 |
+| `session_idle_ttl_minutes` | 整数 >0 | 60 | 会话空闲 TTL（分钟）——期内 `--resume` 续接，过期新会话 |
+| `claudeModel` | 非空字符串 | `glm-5.3-flash` | 传给 `claude --model` 的模型标识 |
+| `maxConcurrentTurns` | 整数 >0 | 4 | 全局并发回合帽（资源保护；平台每用户 3 并发是内置常量） |
+
 ## 开发
 
 ```sh
 bun install
 bun run typecheck     # tsc --noEmit
-bun test              # unit + integration（mock WeCom WS 服务端，无需真实凭据）
+bun test              # unit + integration（mock WeCom WS 服务端 + fake claude，无需真实凭据）
 bun run test:soak     # 10 min soak（AC2 时长证据）
 bun run build         # dist（SDK external）
 bun run check:dist    # dist 洁净门：无机器路径 / shebang / 双运行时冒烟

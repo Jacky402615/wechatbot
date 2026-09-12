@@ -2230,7 +2230,7 @@ export async function createGateway(workspace: string, overrides: Partial<Transp
 ### **Checkpoint B**（Task 7 后）
 
 - [ ] Run: `bun run typecheck && bun test tests/unit tests/integration && bun run build && bash scripts/check-dist.sh && bun run smoke`
-- [ ] 确认：全绿；`grep -r "EchoHandler" src/ tests/` 零命中。
+- [x] 确认：全绿；`grep -r "EchoHandler" src/ tests/` 零命中。
 
 ---
 
@@ -2243,7 +2243,7 @@ export async function createGateway(workspace: string, overrides: Partial<Transp
 **Interfaces:**
 - Consumes: `createGateway(ws, {wsUrl…}, agent overrides)`（Task 7）、`MockWecomServer.pushTextMessage(chatType/chatid)`（Task 2）、fake claude（Task 5）。
 
-- [ ] **Step 1: 写集成测试**（`tests/integration/agent.test.ts`；全部经 mock 服务端 + fake claude 走真实 Gateway 全链路）
+- [x] **Step 1: 写集成测试**（`tests/integration/agent.test.ts`；全部经 mock 服务端 + fake claude 走真实 Gateway 全链路）
 
 ```ts
 import { test, expect } from 'bun:test';
@@ -2393,11 +2393,11 @@ test('群聊路径：chatid 定址会话，群消息往返', async () => {
 });
 ```
 
-- [ ] **Step 2: 跑测确认 FAIL→修至 PASS** — Run: `bun test tests/integration/agent.test.ts`
+- [x] **Step 2: 跑测确认 FAIL→修至 PASS** — Run: `bun test tests/integration/agent.test.ts`
   Expected: 初跑暴露桥接/时序缺陷——按失败信息修 `manager.ts`/`agent.ts`（这是集成层的价值所在：修到全绿）
-- [ ] **Step 3: 全量门** — Run: `bun run typecheck && bun test tests/unit tests/integration`
+- [x] **Step 3: 全量门** — Run: `bun run typecheck && bun test tests/unit tests/integration`
   Expected: PASS
-- [ ] **Step 4: Commit** — `git add tests/integration/agent.test.ts && git commit -m "test(agent): AC1-AC5 integration via mock wecom + fake claude, group chat path"`
+- [x] **Step 4: Commit** — `git add tests/integration/agent.test.ts && git commit -m "test(agent): AC1-AC5 integration via mock wecom + fake claude, group chat path"`
 
 ---
 
@@ -2410,7 +2410,7 @@ test('群聊路径：chatid 定址会话，群消息往返', async () => {
 
 **Interfaces:** 无代码——文档只写集成测试实际验证到的行为（W1 D2 评审纪律）。
 
-- [ ] **Step 1: SPEC.md**——删除 `## Echo（W1 契约）` 节，新增：
+- [x] **Step 1: SPEC.md**——删除 `## Echo（W1 契约）` 节，新增：
 
 ```md
 ## Agent 会话层（W2 契约）
@@ -2443,10 +2443,10 @@ test('群聊路径：chatid 定址会话，群消息往返', async () => {
   「No conversation found」自动 fresh 重试恰好一次。实测：crash/garbage/超时路径均收流。
 ```
 
-- [ ] **Step 2: README.md** config 节追加三键一行说明；CHANGELOG.md 加 W2 条目（沿用既有格式）。
-- [ ] **Step 3: 终检（Checkpoint C）** — Run: `bun run typecheck && bun test tests/unit tests/integration && bun run build && bash scripts/check-dist.sh && bun run smoke`
+- [x] **Step 2: README.md** config 节追加三键一行说明；CHANGELOG.md 加 W2 条目（沿用既有格式）。
+- [x] **Step 3: 终检（Checkpoint C）** — Run: `bun run typecheck && bun test tests/unit tests/integration && bun run build && bash scripts/check-dist.sh && bun run smoke`
   Expected: 全绿；`git status` 干净
-- [ ] **Step 4: Commit** — `git add SPEC.md README.md CHANGELOG.md && git commit -m "docs: W2 agent session layer contract (verified-behavior only)"`
+- [x] **Step 4: Commit** — `git add SPEC.md README.md CHANGELOG.md && git commit -m "docs: W2 agent session layer contract (verified-behavior only)"`
 
 ---
 
