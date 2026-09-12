@@ -13,7 +13,8 @@
 - 配置键 `session_idle_ttl_minutes` / `claudeModel` / `maxConcurrentTurns`（严格校验，缺省由 agent 层持有默认 60 / glm-5.3-flash / 4）。
 - 结构化 JSONL 日志（按日切分、保留 14 天）。
 - 测试面：mock WeCom WS 服务端 + fake claude 双桩（场景化 stream-json 回放）——AC1–AC5 全链路集成测试、10 分钟 soak、dist 洁净门（无机器路径、SDK external、双运行时冒烟）+ CI 与 GitHub Packages 发布工作流。
-- 行为契约 `SPEC.md`（transport/agent 会话层/CLI 节，行为以实测数据为准）。
+- 命令与访问面（W3）：网关命令 `/new`（中止+重置会话）/`/stop`（中止在跑回合，中止终帧即收流）/`/status`（仅管理员私聊）/`/help`——命令先于 agent 路径解析，永不进会话；`access.json` 三层访问控制（admin/approved/rejected by userid + groups allowlist by chatid，帧内单快照防撕裂，逐帧热重读 last-known-good）；群策略 = allowlist 内 @-提及触发（`groupMentionName` token 边界匹配剥离）；`enter_chat` 5 s 内分层欢迎（allowed→欢迎+命令清单，其余→拒绝文案）；`feedback_event` 仅日志；config 新键 `groupMentionName`。
+- 行为契约 `SPEC.md`（transport/agent 会话层/CLI/命令与访问面节，行为以实测数据为准）。
 
 ### Fixed
 - （无——首个功能版本）

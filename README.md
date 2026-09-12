@@ -41,6 +41,16 @@ wechatbot stop -r /path/to/workspace
 
 前台调试用 `wechatbot run -r <workspace>`。日志在 `<workspace>/.bot/logs/`（JSONL，按日切分）。
 
+### 访问控制（`.bot/access.json`）
+
+```json
+{ "admin": ["你的userid"], "approved": ["同事userid"], "rejected": [], "groups": ["群chatid"] }
+```
+
+私聊仅 admin/approved 应答（其余得到拒绝提示）；群聊仅 allowlist 内的 @ 提及应答
+（需同时在 `config.json` 配 `groupMentionName`）。改动即时生效（逐消息重读）。
+可用命令：`/new` `/stop` `/status`（仅管理员私聊）`/help`。
+
 ### 配置（`<workspace>/.bot/config.json`）
 
 | 键 | 类型 | 默认 | 说明 |
@@ -51,6 +61,7 @@ wechatbot stop -r /path/to/workspace
 | `session_idle_ttl_minutes` | 整数 >0 | 60 | 会话空闲 TTL（分钟）——期内 `--resume` 续接，过期新会话 |
 | `claudeModel` | 非空字符串 | `glm-5.3-flash` | 传给 `claude --model` 的模型标识 |
 | `maxConcurrentTurns` | 整数 >0 | 4 | 全局并发回合帽（资源保护；平台每用户 3 并发是内置常量） |
+| `groupMentionName` | 非空字符串 | —（groups 非空时必填） | 群 @-提及匹配名：群消息须以 `@<名>` 开头才处理 |
 
 ## 开发
 

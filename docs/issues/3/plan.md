@@ -1391,7 +1391,7 @@ test('R1-F5 /new 在跑编排：中止终帧 + 重置回执 + 排队消息不再
 - Consumes: Tasks 1–8 全部落定行为
 - Produces: 文档契约（后续 W4 与 Human-Review 的对照面）
 
-- [ ] **Step 1: Write the docs**（`SPEC.md` 追加段）：
+- [x] **Step 1: Write the docs**（`SPEC.md` 追加段）：
 
 ```md
 ## 命令与访问面（W3 契约）
@@ -1441,15 +1441,15 @@ test('R1-F5 /new 在跑编排：中止终帧 + 重置回执 + 排队消息不再
 可用命令：`/new` `/stop` `/status`（仅管理员私聊）`/help`。
 ````
 
-- [ ] **Step 2: Verify docs against behavior** — Run: `bun test` + `bun run typecheck` + 通读 SPEC 新段与 Task 6/8 行为一一对照（每条契约可指回某测试）
-- [ ] **Step 3: Full gate** — Run: `bun run typecheck && bun test && bun run build && bun run check:dist` Expected: 全部通过
-- [ ] **Step 4: Commit** — `git add SPEC.md README.md && git commit -m "W3: SPEC contract section + README access/config docs"`
+- [x] **Step 2: Verify docs against behavior** — Run: `bun test` + `bun run typecheck` + 通读 SPEC 新段与 Task 6/8 行为一一对照（每条契约可指回某测试）
+- [x] **Step 3: Full gate** — Run: `bun run typecheck && bun test && bun run build && bun run check:dist` Expected: 全部通过
+- [x] **Step 4: Commit** — `git add SPEC.md README.md && git commit -m "W3: SPEC contract section + README access/config docs"`
 
 ## Checkpoint D（Task 9 后——交付门）
 
-- [ ] `bun run typecheck && bun test && bun run build && bun run check:dist` 全绿
-- [ ] AC1–AC4 各有对应集成测试且绿（tests/integration/commands.test.ts + agent-handler 单测）
-- [ ] 自审：scope 对照 issue 描述——per-repo pairing / transfer_admin / passthrough 未做（out of scope 确认）
+- [x] `bun run typecheck && bun test && bun run build && bun run check:dist` 全绿
+- [x] AC1–AC4 各有对应集成测试且绿（tests/integration/commands.test.ts + agent-handler 单测）
+- [x] 自审：scope 对照 issue 描述——per-repo pairing / transfer_admin / passthrough 未做（out of scope 确认）
 - [ ] **Human-Review 证据清单**（plan 评审 R1-F7——PR 描述须携带以下空栏字段，owner 在 Human-Review 阶段逐项填写后方可合并）：
   - 真实群 @ 消息 `text.content` 原文抓样：____（据此时断 `groupMentionName` 取值是否需要调整）
   - 真实 `enter_chat` → 欢迎送达时间戳（≤5s 证据）：____
