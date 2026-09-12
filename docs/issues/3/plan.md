@@ -1218,7 +1218,7 @@ test('W3 接线：access.json 缺失/损坏 ⇒ createGateway 启动即抛 Confi
 - Consumes: Task 7 完整装配（mock server + fake claude 双桩）
 - Produces: AC1–AC4 的集成证据 + /new 在跑回合编排证据（plan 评审 R1-F5）
 
-- [ ] **Step 1: Write the failing test**（`tests/integration/commands.test.ts`）
+- [x] **Step 1: Write the failing test**（`tests/integration/commands.test.ts`）
 
 ```ts
 import { test, expect } from 'bun:test';
@@ -1376,10 +1376,10 @@ test('R1-F5 /new 在跑编排：中止终帧 + 重置回执 + 排队消息不再
 });
 ```
 
-- [ ] **Step 2: Run it and verify it FAILS or PASSES honestly** — Run: `bun test tests/integration/commands.test.ts` Expected: 若 Task 6/7 已合入则多数直接 PASS（本任务是验收证据固化——任何 FAIL 即实现缺口，回补实现而非改测试）
-- [ ] **Step 3: 修正至全绿**（修实现，不改验收断言）
-- [ ] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/integration/commands.test.ts` Expected: PASS（7 tests）
-- [ ] **Step 5: Commit** — `git add tests/integration/commands.test.ts && git commit -m "W3: end-to-end AC1-AC4 + live /new orchestration integration evidence"`
+- [x] **Step 2: Run it and verify it FAILS or PASSES honestly** — Run: `bun test tests/integration/commands.test.ts` Expected: 若 Task 6/7 已合入则多数直接 PASS（本任务是验收证据固化——任何 FAIL 即实现缺口，回补实现而非改测试）
+- [x] **Step 3: 修正至全绿**（修实现，不改验收断言）
+- [x] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/integration/commands.test.ts` Expected: PASS（7 tests）
+- [x] **Step 5: Commit** — `git add tests/integration/commands.test.ts && git commit -m "W3: end-to-end AC1-AC4 + live /new orchestration integration evidence"`
 
 ### Task 9: SPEC.md 契约段 + README 配置行 + 全量门
 
