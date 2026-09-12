@@ -2021,7 +2021,7 @@ test('soak: 10 min 持续存活 + 中途断链有界恢复（AC2）', async () =
 
 - [x] **Step 2: 执行 soak** — Run: `bun run test:soak`
   Expected: 1 passed（约 10 min）。把结果（ping 次数、subscribeCount、时长）记到看板 `### 执行日志`。
-- [ ] **Step 3: 终检** — Run: `bun run typecheck && bun test tests/unit tests/integration && bun run build && bun run check:dist && git status --porcelain`
+- [x] **Step 3: 终检** — Run: `bun run typecheck && bun test tests/unit tests/integration && bun run build && bun run check:dist && git status --porcelain`
   Expected: 全绿；工作区干净（所有任务已提交）。
 - [x] **Step 4: Commit** — `git add tests/soak/soak.test.ts && git commit -m "test: 10-minute soak proving keepalive and mid-run reconnect (AC2)"`
 
