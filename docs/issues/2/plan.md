@@ -763,7 +763,7 @@ export class SessionStore {
   - `FAKE_CLAUDE_SCENARIO`（必填）∈ `happy` | `ask` | `ask-multi` | `no-output` | `resume-not-found` | `crash` | `garbage` | `deltas` | `ignore-signals` | `slow-output`（`FAKE_CLAUDE_DELAY_MS` 可调延迟）。状态目录另追加 `exit.jsonl`（pid+ts 生命周期记录，供「旧进程退出先于新 spawn」断言）。
   - 供测试注入的 command：`{ command: process.execPath, argsPrefix: ['<abs>/tests/helpers/fake-claude.mjs'] }`。
 
-- [ ] **Step 1: 写 `tests/helpers/fake-claude.mjs`**
+- [x] **Step 1: 写 `tests/helpers/fake-claude.mjs`**
 
 ```js
 #!/usr/bin/env node
@@ -914,10 +914,10 @@ switch (SCENARIO) {
 }
 ```
 
-- [ ] **Step 2: 冒烟验证（不写正式测试——Task 6 的用例即验证）** — Run:
+- [x] **Step 2: 冒烟验证（不写正式测试——Task 6 的用例即验证）** — Run:
   `mkdir -p /tmp/fc && FAKE_CLAUDE_STATE_DIR=/tmp/fc FAKE_CLAUDE_SCENARIO=happy bash -c 'echo "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}" | node tests/helpers/fake-claude.mjs --print --model glm-5.3-flash'`
   Expected: stdout 三行 NDJSON（system/assistant/result）；`/tmp/fc/argv.jsonl` 记录 `--model glm-5.3-flash`、`resumeId: null`、`hasClaudecode: false`、`cwd` = 当前目录。
-- [ ] **Step 3: Commit** — `git add tests/helpers/fake-claude.mjs && git commit -m "test(agent): fake claude child with scenario-driven stream-json playback"`
+- [x] **Step 3: Commit** — `git add tests/helpers/fake-claude.mjs && git commit -m "test(agent): fake claude child with scenario-driven stream-json playback"`
 
 ---
 
