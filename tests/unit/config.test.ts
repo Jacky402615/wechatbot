@@ -63,3 +63,53 @@ test('数值边界：0/负心跳与非整数被拒；-1 无限重连与正整数
   setRc(-1);     expect(() => loadWorkspace(ws)).not.toThrow();
   setRc(10);     expect(() => loadWorkspace(ws)).not.toThrow();
 });
+
+// ── W2：agent 层三新键（plan Task 1；缺省不填——默认值由 AgentManager 持有，config 只做校验） ──
+test('W2 键缺省：三个键保持 undefined（默认值归 manager），不注入 config 对象', () => {
+  const ws = freshWs();
+  const { config } = loadWorkspace(ws);
+  expect(config).toEqual({ logLevel: 'info' });
+  expect(config.sessionIdleTtlMinutes).toBeUndefined();
+  expect(config.claudeModel).toBeUndefined();
+  expect(config.maxConcurrentTurns).toBeUndefined();
+});
+
+test('W2 键合法值生效（含 trim）', () => {
+  const ws = freshWs();
+  loadWorkspace(ws);
+  writeFileSync(join(ws, '.bot', 'config.json'), JSON.stringify({
+    session_idle_ttl_minutes: 30, claudeModel: '  glm-5.3  ', maxConcurrentTurns: 8,
+  }));
+  const { config } = loadWorkspace(ws);
+  expect(config.sessionIdleTtlMinutes).toBe(30);
+  expect(config.claudeModel).toBe('glm-5.3');
+  expect(config.maxConcurrentTurns).toBe(8);
+});
+
+test('session_idle_ttl_minutes：非整数/<=0 被拒', () => {
+  const ws = freshWs();
+  loadWorkspace(ws);
+  const set = (v: unknown) => writeFileSync(join(ws, '.bot', 'config.json'), JSON.stringify({ session_idle_ttl_minutes: v }));
+  set(1.5);  expect(() => loadWorkspace(ws)).toThrow(/session_idle_ttl_minutes/);
+  set(0);    expect(() => loadWorkspace(ws)).toThrow(/session_idle_ttl_minutes/);
+  set(-5);   expect(() => loadWorkspace(ws)).toThrow(/session_idle_ttl_minutes/);
+  set('60'); expect(() => loadWorkspace(ws)).toThrow(/session_idle_ttl_minutes/);
+});
+
+test('claudeModel：空串/纯空白/非字符串被拒', () => {
+  const ws = freshWs();
+  loadWorkspace(ws);
+  const set = (v: unknown) => writeFileSync(join(ws, '.bot', 'config.json'), JSON.stringify({ claudeModel: v }));
+  set('');   expect(() => loadWorkspace(ws)).toThrow(/claudeModel/);
+  set('   ');expect(() => loadWorkspace(ws)).toThrow(/claudeModel/);
+  set(42);   expect(() => loadWorkspace(ws)).toThrow(/claudeModel/);
+});
+
+test('maxConcurrentTurns：非整数/<=0 被拒', () => {
+  const ws = freshWs();
+  loadWorkspace(ws);
+  const set = (v: unknown) => writeFileSync(join(ws, '.bot', 'config.json'), JSON.stringify({ maxConcurrentTurns: v }));
+  set(0);    expect(() => loadWorkspace(ws)).toThrow(/maxConcurrentTurns/);
+  set(-1);   expect(() => loadWorkspace(ws)).toThrow(/maxConcurrentTurns/);
+  set(2.5);  expect(() => loadWorkspace(ws)).toThrow(/maxConcurrentTurns/);
+});

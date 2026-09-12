@@ -67,13 +67,21 @@ export class WecomSdkTransport implements WeComTransport {
       });
       client.on('message.text', (frame: WsFrame) => {
         const body = frame.body as unknown as {
-          msgid: string; chattype?: 'single' | 'group'; from: { userid: string }; text: { content: string };
+          msgid: string; chattype?: 'single' | 'group'; chatid?: string;
+          from: { userid: string }; text: { content: string };
         };
+        const chatType = body.chattype ?? 'single';
+        if (chatType === 'group' && !body.chatid) {
+          // 群帧必带 chatid（SDK .d.ts：仅群聊返回）——缺失即无法定址会话，忽略并留痕
+          this.opts.logger?.debug?.(`group text without chatid ignored: ${body.msgid}`);
+          return;
+        }
         this.emit({
           type: 'textMessage',
           message: {
             msgid: body.msgid,
-            chatType: body.chattype ?? 'single',
+            chatType,
+            ...(chatType === 'group' ? { chatId: body.chatid } : {}),
             userId: body.from?.userid ?? 'unknown',
             content: body.text?.content ?? '',
             replyTo: refFromFrame(frame),

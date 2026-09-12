@@ -90,8 +90,29 @@ test('textMessage 事件携带解析后的 DTO 与 reqId', async () => {
   const msg = rec.events.find((e) => e.type === 'textMessage')!;
   expect(msg).toEqual({
     type: 'textMessage',
-    message: { msgid: 'm1', chatType: 'single', userId: 'u1', content: 'hello', replyTo: { __brand: 'ReplyRef', reqId: 'req-1' } },
+    message: { msgid: 'm1', chatType: 'single', chatId: undefined, userId: 'u1', content: 'hello', replyTo: { __brand: 'ReplyRef', reqId: 'req-1' } },
   });
+  await t.stop();
+  await srv.stop();
+});
+
+test('群聊帧：chatid 解析进 chatId；缺 chatid 的群帧被忽略', async () => {
+  const srv = new MockWecomServer();
+  const { url } = await srv.start();
+  const t = new WecomSdkTransport({ botId: 'b', secret: 's', wsUrl: url, ...FAST });
+  const rec = recorder();
+  t.on(rec.push);
+  await t.start();
+  srv.pushTextMessage('req-g1', { msgid: 'g1', userId: 'u1', content: 'hi group', chatType: 'group', chatid: 'wrGroupId' });
+  await waitUntil(() => rec.events.some((e) => e.type === 'textMessage'));
+  const msg = rec.events.find((e) => e.type === 'textMessage')!;
+  if (msg.type !== 'textMessage') throw new Error('unreachable');
+  expect(msg.message.chatType).toBe('group');
+  expect(msg.message.chatId).toBe('wrGroupId');
+  // 缺 chatid 的群帧：忽略（无新 textMessage 事件）
+  srv.pushTextMessage('req-g2', { msgid: 'g2', userId: 'u1', content: 'bad', chatType: 'group' });
+  await new Promise((r) => setTimeout(r, 300));
+  expect(rec.events.filter((e) => e.type === 'textMessage').length).toBe(1);
   await t.stop();
   await srv.stop();
 });
