@@ -313,3 +313,20 @@ test('过期 ask 后的新消息：收割完成后才放行（新 spawn 不与�
   expect(events.filter((e) => e.type === 'ask').length).toBe(2); // 新回合正常起步（ask 场景再问一次）
   await manager.closeAll();
 });
+
+test('群作答者计入并发帽：帽下作答 ⇒ 归因生效，其第 4 回合排队（R2-C2/R3-F2 正路径）', async () => {
+  // 单 manager：u2 的两个 ask 等待回合（无人作答即长活）+ u1 的群 ask——全部同场景
+  const { manager } = makeManager('ask', { perUserInFlight: 3, maxConcurrentTurns: 8, turnTimeoutMs: 30_000, idleTtlMs: 60_000 });
+  manager.submit('single:a', 'single', 'u2', 'x1', () => {});  // u2 in-flight 1（ask 等待长活）
+  manager.submit('single:b', 'single', 'u2', 'x2', () => {});  // u2 in-flight 2
+  manager.submit('group:g1', 'group', 'u1', '开始', () => {});
+  await flush(200);
+  expect(manager.hasPendingAsk('single:a')).toBe(true);
+  expect(manager.hasPendingAsk('single:b')).toBe(true);
+  expect(manager.hasPendingAsk('group:g1')).toBe(true);
+  // u2（in-flight 2 < 帽 3）作答群 ask：受理且归因——u2 计数升至 3
+  expect(manager.answerPendingAsk('group:g1', '1', 'u2')).toBe('answered');
+  // 归因后 u2 达帽：第 4 回合排队（证明作答者确实计入平台帽）
+  expect(manager.submit('single:d', 'single', 'u2', 'x4', () => {})).toBe('queued');
+  await manager.closeAll();
+});

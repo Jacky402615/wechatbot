@@ -26,6 +26,7 @@ class FakeManager {
   answerResult: 'answered' | 'invalid_numeric' | 'none' = 'answered';
   submitResult: 'started' | 'queued' | 'queue-full' | 'shutdown' = 'started';
   pendingFlag = false;
+  expireResult = false;
   nextEvents: Array<(emit: (ev: AgentEvent) => void) => void> = [];
   submit(chatKey: string, _ct: 'single' | 'group', _u: string, prompt: string, onEvent: AgentEventHandler) {
     this.submitted.push({ chatKey, prompt });
@@ -35,7 +36,7 @@ class FakeManager {
   }
   answerPendingAsk(_k: string, text: string, _uid?: string) { this.answers.push(text); return this.answerResult; }
   hasPendingAsk() { return this.pendingFlag; }
-  expireStaleAsk() { return false; }
+  expireStaleAsk() { return this.expireResult; }
   async closeAll() {}
 }
 
@@ -248,4 +249,32 @@ test('ask 字节保底（code-review C6）：超长已产出文本不截掉编�
   expect(askFrame.content).toContain('3. 丙');
   expect(askFrame.content).toContain('4. 丁');        // 编号清单完整——未被前置输出挤出预算
   expect(askFrame.content.indexOf('…[截断]')).toBeLessThan(askFrame.content.indexOf('❓ 第一题？')); // 截断标记只落在前置文本
+});
+
+test('ask_expired 只认领处女续流：入站过期路径挂了 banner 的流不被旧代事件误删（R2-C1）', async () => {
+  const { handler, transport, manager } = makeHandler();
+  handler.register();
+  // 第一段：ask 闭流（制造续流）
+  manager.nextEvents.push((emit) => {
+    emit({ type: 'ask', chatKey: 'single:u1', questions: [{ question: 'Q?', options: [{ label: 'a' }] }] });
+  });
+  transport.emit(MSG());
+  await flush();
+  expect(transport.sent.at(-1)!.finish).toBe(true);
+  const sentBefore = transport.sent.length;
+  // 入站过期路径：expireStaleAsk=true ⇒ onText 给续流挂 banner 并把入站按新回合提交
+  manager.expireResult = true;
+  manager.nextEvents.push((emit) => {
+    emit({ type: 'ask_expired', chatKey: 'single:u1' }); // 旧代的迟到过期事件（banner 在场——非处女流）
+    emit({ type: 'text_delta', chatKey: 'single:u1', text: '新回合输出' });
+    emit({ type: 'turn_complete', chatKey: 'single:u1', finalText: '新回合输出' });
+  });
+  transport.emit(MSG({ content: '新消息' }));
+  await flush();
+  // 旧代 ask_expired 不删流、不发**独立过期通知**（通知文案以句号结尾，与 banner 文案不同）
+  expect(transport.sent.filter((f) => f.content === '⚠️ 上一个问题已超时失效。').length).toBe(0);
+  const final = transport.sent.at(-1)!;
+  expect(final.finish).toBe(true);
+  expect(final.content).toContain('上一个问题已超时失效'); // banner 保留
+  expect(final.content).toContain('新回合输出');
 });

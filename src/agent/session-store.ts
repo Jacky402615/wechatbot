@@ -89,16 +89,13 @@ export class SessionStore {
     return this.create(chatKey, chatType);
   }
 
-  /** resume id 持久是回合副产物（code-review C4 分级）：写失败不拖垮回合，降级处置。 */
+  /** resume id 是 **核心续接状态**（AC2——code-review R2-C5）：写失败必须上抛
+   *  （runTurn 外层失败生命周期接住报 turn_failed），绝不静默降级成「下次 fresh」。 */
   setClaudeSessionId(chatKey: string, id: string): void {
     const s = this.get(chatKey);
     if (!s) return;
     s.claudeSessionId = id;
-    try {
-      this.write(s);
-    } catch (e) {
-      this.telemetry('setClaudeSessionId', e);
-    }
+    this.write(s);
   }
 
   /** 活动时间是 TTL 遥测面（W1 state 同款降级）：写失败留痕不抛。 */

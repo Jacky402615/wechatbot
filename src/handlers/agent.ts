@@ -172,15 +172,16 @@ export class AgentHandler {
         return;
       }
       case 'ask_expired': {
-        // 无人作答的 TTL 过期（code-review C3）：续流尚未发出——主动发一条过期通知收口
-        // （作答驱动的过期由 onText 的 banner 路径承载，此事件只作日志锚点时流已闭）
+        // 无人作答的 TTL 过期（code-review C3）：续流尚未发出——主动发一条过期通知收口。
+        // 只认领「处女续流」（无 banner/acc/已发帧——R2-C1：入站过期路径已把流让渡给
+        // 新回合的 banner，绝不能删；新回合自己的流更不能被旧代事件误删）。
         this.deps.logger.warn('ask expired (ttl)', { chatKey });
         const pending = this.streams.get(chatKey);
-        if (pending && !pending.closed && !pending.acc && !pending.banner) {
+        const virgin = pending && !pending.closed && !pending.acc && !pending.banner && pending.lastFrameAt === 0;
+        if (pending && virgin) {
           this.streams.delete(chatKey);
           await this.notice(st.ref, chatKey, '⚠️ 上一个问题已超时失效。');
         }
-        this.streams.delete(chatKey);
         return;
       }
     }

@@ -83,6 +83,7 @@ const activeTerminations = new WeakMap<ChildProcess, Promise<void>>();
 const timedOutProcs = new WeakSet<ChildProcess>();       // 超时击杀哨兵（runTurn 据此发 TURN_TIMEOUT_ERROR）
 const resumeNotFoundProcs = new WeakSet<ChildProcess>(); // resume 失败重试哨兵（恰好一次）
 const expiredAskProcs = new WeakSet<ChildProcess>();     // ask 过期击杀哨兵（runTurn 据此发 ask_expired，不发 turn_failed——code-review C2）
+const stdinFailedProcs = new WeakSet<ChildProcess>();   // stdin 异步失败（EPIPE）哨兵——后续写一律拒收（code-review R2-C3）
 
 function terminateChild(proc: ChildProcess, eofMs: number, termMs: number): Promise<void> {
   const existing = activeTerminations.get(proc);
@@ -117,7 +118,7 @@ function terminateChild(proc: ChildProcess, eofMs: number, termMs: number): Prom
  *  error 监听兜底（不冒泡为 unhandled）。返回 false = 写失败（管道已死），调用方各自降级。 */
 function writeLine(proc: ChildProcess, obj: unknown): boolean {
   const stdin = proc.stdin;
-  if (!stdin || !stdin.writable) return false;
+  if (!stdin || !stdin.writable || stdinFailedProcs.has(proc)) return false;
   try {
     stdin.write(JSON.stringify(obj) + '\n');
     return true;
@@ -216,19 +217,29 @@ export class AgentManager {
       this.pendingAsks.delete(chatKey);
       return 'none';
     }
-    this.pendingAsks.delete(chatKey);
-    this.deps.sessions.updateActivity(chatKey);
-    const turn = this.busy.get(chatKey);
-    if (turn?.proc === entry.proc && answeringUserId && !turn.initiators.includes(answeringUserId)) {
-      turn.initiators.push(answeringUserId); // 群内作答者与回合并发相关——计入帽（R3-F2）
-    }
     const wrote = writeLine(entry.proc, {
       type: 'control_response',
       response: { subtype: 'success', request_id: entry.requestId, response: { behavior: 'allow', updatedInput: { ...entry.input, answers } } },
     });
     if (!wrote) {
       this.deps.logger.warn('control_response write failed (child dying)', { chatKey });
+      this.pendingAsks.delete(chatKey); // 写失败才清——此前保持 pending 可重试（code-review R2-C4）
       return 'none';
+    }
+    this.pendingAsks.delete(chatKey);
+    try {
+      this.deps.sessions.updateActivity(chatKey);
+    } catch (e) {
+      // 活动时间是遥测面：写失败留痕，不影响作答已成立的事实
+      this.deps.logger.warn('session activity persist failed (answer kept)', { chatKey, err: (e as Error).message });
+    }
+    const turn = this.busy.get(chatKey);
+    if (turn?.proc === entry.proc && answeringUserId && !turn.initiators.includes(answeringUserId)) {
+      if (this.userInFlight(answeringUserId) < this.opts.perUserInFlight) {
+        turn.initiators.push(answeringUserId); // 群内作答者计入帽（R3-F2）——已达帽则不追加（R2-C2：作答照常，归因不破平台界）
+      } else {
+        this.deps.logger.warn('group answerer at per-user in-flight cap — attribution skipped', { chatKey, answeringUserId });
+      }
     }
     if (turn?.proc === entry.proc && turn.askDeadline) {
       clearTimeout(turn.askDeadline);
@@ -316,6 +327,7 @@ export class AgentManager {
         if (!ctx.turnFinished) {
           try { await onEvent({ type: 'turn_failed', chatKey, error: e.message }); } catch { /* 消费方已坏 */ }
         }
+        if (this.pendingAsks.get(chatKey)?.proc === proc) this.pendingAsks.delete(chatKey); // code-review R2-C4
         const turn = this.busy.get(chatKey);
         if (turn?.proc === proc) {
           if (turn.deadline) clearTimeout(turn.deadline);
@@ -346,8 +358,11 @@ export class AgentManager {
     this.busy.set(chatKey, { proc, initiators: [...new Set(userIds)], deadline: null, askDeadline: null, terminating: false });
     this.armDeadline(chatKey, proc);
     this.deps.logger.info('turn starting', { chatKey, resume: resumeId ?? '(fresh)', pid: proc.pid });
-    // code-review C5：stdin 异步错误（EPIPE）一次性兜底——写失败由 writeLine 返回值与退出路径接住
-    proc.stdin?.on('error', () => {});
+    // code-review C5/R2-C3：stdin 异步错误（EPIPE）哨兵化——后续写拒收、留痕不冒 unhandled
+    proc.stdin?.on('error', (e: Error) => {
+      stdinFailedProcs.add(proc);
+      this.deps.logger.warn('claude stdin failed (writes will be rejected)', { chatKey, err: e.message });
+    });
 
     let stderrBuf = '';
     proc.stderr?.on('data', (c: Buffer) => { stderrBuf += c.toString(); });
