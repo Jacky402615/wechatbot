@@ -228,7 +228,13 @@ export class AgentManager {
     this.queues.delete(chatKey);
     const turn = this.busy.get(chatKey);
     if (!turn) return { status: 'idle', dropped };
-    if (turn.terminating) return { status: 'stopping', dropped };
+    if (turn.terminating) {
+      // 超时/ask 过期已在收割中的回合：补记中止哨兵——用户命令拥有终态文案
+      // （EOF 路径 abortedProcs 先判，压过 timedOutProcs/expiredAskProcs——code-review F2；
+      //   EOF 块已过哨兵判定的迟到补记是 no-op——终态事件不会重发）
+      abortedProcs.add(turn.proc);
+      return { status: 'stopping', dropped };
+    }
     if (turn.deadline) clearTimeout(turn.deadline);
     if (turn.askDeadline) clearTimeout(turn.askDeadline);
     if (this.pendingAsks.get(chatKey)?.proc === turn.proc) this.pendingAsks.delete(chatKey);
@@ -247,7 +253,7 @@ export class AgentManager {
   /** /status 数据面（D6）。 */
   inFlightCount(): number { return this.busy.size; }
 
-  activeSessionCount(): number { return this.deps.sessions.listActive(); }
+  activeSessionCount(): { active: number; corrupt: number } { return this.deps.sessions.listActive(); }
 
   /** 数字/自由文本作答：写 control_response 回仍在运行的进程（写完成回调确认——P2）。
    *  作答者（群内可为非发起人——D2）计入本回合 initiators（R3-F2）；已达每用户帽的作答者

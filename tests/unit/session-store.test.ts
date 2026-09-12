@@ -70,3 +70,14 @@ test('close 后 get 返回 null（active 视图）；chatKey 超长拒绝（160 
   expect(() => store.resumable('x'.repeat(161), 'single', 60_000)).toThrow(/chatKey/);
   expect(() => store.resumable('汉'.repeat(54), 'single', 60_000)).toThrow(/chatKey/); // 54 CJK 字 = 162 字节 > 160
 });
+
+test('listActive：损坏档计入 corrupt（code-review F4）——active 与披露面分离', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'wb-ss-corrupt-'));
+  const store = new SessionStore(join(dir, 'sessions'));
+  store.create('single:u1', 'single');
+  store.create('single:u2', 'single');
+  writeFileSync(join(dir, 'sessions', Buffer.from('single:u3', 'utf8').toString('base64url') + '.json'), 'not-json{');
+  expect(store.listActive()).toEqual({ active: 2, corrupt: 1 });
+  store.close('single:u1');
+  expect(store.listActive()).toEqual({ active: 1, corrupt: 1 });
+});

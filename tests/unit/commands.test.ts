@@ -35,3 +35,22 @@ test('文案：REJECTION_TEXT 不含命令字样；help/welcome/status 渲染（
   expect(s).toContain('g1');
   expect(statusText({ connected: true, authenticated: false, admins: [], approved: [], groups: [], activeSessions: 0, inFlight: 0 })).toContain('未认证');
 });
+
+test('statusText 封顶渲染（code-review F3）：超 20 项名单显示前 20 + 总数标记', () => {
+  const many = Array.from({ length: 25 }, (_, i) => `user${i}`);
+  const s = statusText({ connected: true, authenticated: true, admins: many, approved: [], groups: [], activeSessions: 0, inFlight: 0 });
+  expect(s).toContain('管理员 (25)');
+  expect(s).toContain('user0');
+  expect(s).toContain('user19');
+  expect(s).not.toContain('user20,');
+  expect(s).toContain('…等共 25 项');
+  const small = statusText({ connected: true, authenticated: true, admins: ['a', 'b'], approved: [], groups: [], activeSessions: 0, inFlight: 0 });
+  expect(small).toContain('a, b');
+  expect(small).not.toContain('…等共');
+});
+
+test('statusText 损坏档披露（code-review F4）', () => {
+  const s = statusText({ connected: true, authenticated: true, admins: [], approved: [], groups: [], activeSessions: 2, corruptSessions: 3, inFlight: 0 });
+  expect(s).toContain('活跃会话: 2（另有 3 个无法读取的会话档）');
+  expect(statusText({ connected: true, authenticated: true, admins: [], approved: [], groups: [], activeSessions: 2, inFlight: 0 })).toContain('活跃会话: 2');
+});

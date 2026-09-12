@@ -444,12 +444,27 @@ test('W3 abortChat：pending ask 中的回合一并中止（不发 ask_expired�
 
 test('W3 resetSession / activeSessionCount / listActive：闭档后活跃数归零', async () => {
   const { manager, sessions } = makeManager('happy');
-  expect(manager.activeSessionCount()).toBe(0);
+  expect(manager.activeSessionCount()).toEqual({ active: 0, corrupt: 0 });
   manager.submit('single:u1', 'single', 'u1', 'm1', () => {});
   await flush();
-  expect(manager.activeSessionCount()).toBe(1);
-  expect(sessions.listActive()).toBe(1);
+  expect(manager.activeSessionCount()).toEqual({ active: 1, corrupt: 0 });
+  expect(sessions.listActive()).toEqual({ active: 1, corrupt: 0 });
   manager.resetSession('single:u1');
-  expect(manager.activeSessionCount()).toBe(0);
+  expect(manager.activeSessionCount()).toEqual({ active: 0, corrupt: 0 });
+  await manager.closeAll();
+});
+
+test('W3 abortChat 与超时重叠（code-review F2）：timeout 已击杀的回合，用户中止接管终态文案', async () => {
+  const { stateDir, manager } = makeManager('ignore-signals', { turnTimeoutMs: 300 }); // 无视 SIGINT/SIGTERM——SIGKILL 才死，收割窗口拉长
+  const events: AgentEvent[] = [];
+  manager.submit('single:u1', 'single', 'u1', 'm1', (ev) => { events.push(ev); });
+  await new Promise((r) => setTimeout(r, 500)); // timeout 已 SIGINT + timedOutProcs 哨兵在案（子进程仍活——EOF 未到）
+  // 实测时序：超时路径不置 terminating（runTurnInner 清理段才置）⇒ abortChat 走 'stopped'；
+  // 无论走哪条分支，中止哨兵都接管 EOF 终态判定
+  const r = manager.abortChat('single:u1');
+  expect(r.status).toBe('stopped');
+  await flush(4_000);                // 收割梯子升级 SIGKILL → EOF 路径
+  expect(events.some((e) => e.type === 'turn_failed' && e.error === TURN_ABORTED_ERROR)).toBe(true);
+  expect(events.some((e) => e.type === 'turn_failed' && e.error === TURN_TIMEOUT_ERROR)).toBe(false); // 中止哨兵压过超时哨兵
   await manager.closeAll();
 });

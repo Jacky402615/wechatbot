@@ -37,15 +37,22 @@ export function welcomeText(): string {
   return `👋 你好！我是智能助手。\n\n${helpText()}`;
 }
 
-export function statusText(snap: { connected: boolean; authenticated: boolean; admins: readonly string[]; approved: readonly string[]; groups: readonly string[]; activeSessions: number; inFlight: number }): string {
+export function statusText(snap: { connected: boolean; authenticated: boolean; admins: readonly string[]; approved: readonly string[]; groups: readonly string[]; activeSessions: number; corruptSessions?: number; inFlight: number }): string {
   const conn = snap.connected ? (snap.authenticated ? '已连接（已认证）' : '已连接（未认证）') : '未连接';
+  // code-review F3：名单渲染封顶——合法但超大的 access 名单不得撑爆 20KB 内容上限（计数仍在）
+  const CAP = 20;
+  const renderList = (items: readonly string[]): string => {
+    const shown = items.slice(0, CAP).join(', ') || '（无）';
+    return items.length > CAP ? `${shown} …等共 ${items.length} 项` : shown;
+  };
+  const corrupt = snap.corruptSessions && snap.corruptSessions > 0 ? `（另有 ${snap.corruptSessions} 个无法读取的会话档）` : '';
   return [
     '📊 网关状态（快照）',
     `连接：${conn}`,
-    `管理员 (${snap.admins.length}): ${snap.admins.join(', ') || '（无）'}`,
-    `授权用户 (${snap.approved.length}): ${snap.approved.join(', ') || '（无）'}`,
-    `授权群 (${snap.groups.length}): ${snap.groups.join(', ') || '（无）'}`,
-    `活跃会话: ${snap.activeSessions}`,
+    `管理员 (${snap.admins.length}): ${renderList(snap.admins)}`,
+    `授权用户 (${snap.approved.length}): ${renderList(snap.approved)}`,
+    `授权群 (${snap.groups.length}): ${renderList(snap.groups)}`,
+    `活跃会话: ${snap.activeSessions}${corrupt}`,
     `进行中回合: ${snap.inFlight}`,
   ].join('\n');
 }

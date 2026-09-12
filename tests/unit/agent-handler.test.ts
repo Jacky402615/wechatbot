@@ -49,7 +49,7 @@ class FakeManager {
   abortChat(chatKey: string) { this.aborts.push(chatKey); return { status: this.abortStatus, dropped: this.abortDropped }; }
   resetSession(chatKey: string) { this.resets.push(chatKey); }
   inFlightCount() { return 0; }
-  activeSessionCount() { return 0; }
+  activeSessionCount() { return { active: 0, corrupt: 0 }; }
   async closeAll() {}
 }
 

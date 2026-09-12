@@ -124,17 +124,21 @@ export class SessionStore {
     this.write({ ...s, status: 'closed' });
   }
 
-  /** /status 数据面：活动档计数（读目录 + 逐档 status 判定——记录极小，W2 D4 无启动清扫同因）。 */
-  listActive(): number {
-    let n = 0;
+  /** /status 数据面：活动档计数 + 损坏档计数（code-review F4——损坏可见，不静默吞）。
+   *  记录极小，读目录逐档判定（W2 D4 无启动清扫同因）。 */
+  listActive(): { active: number; corrupt: number } {
+    let active = 0;
+    let corrupt = 0;
     for (const f of readdirSync(this.sessionsDir)) {
       if (!f.endsWith('.json')) continue;
       try {
         const s = JSON.parse(readFileSync(join(this.sessionsDir, f), 'utf8')) as ChatSession;
-        if (s && s.status === 'active') n += 1;
-      } catch { /* 坏档不计数（get 同款严格丢语义） */ }
+        if (s && s.status === 'active') active += 1;
+      } catch {
+        corrupt += 1; // 坏档不计活跃（get 同款严格丢语义）——但计入 corrupt 披露面
+      }
     }
-    return n;
+    return { active, corrupt };
   }
 
   private write(s: ChatSession): void {

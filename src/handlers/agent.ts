@@ -23,7 +23,7 @@ export interface AgentManagerPort {
   abortChat(chatKey: string): { status: 'stopped' | 'stopping' | 'idle'; dropped: number };
   resetSession(chatKey: string): void;
   inFlightCount(): number;
-  activeSessionCount(): number;
+  activeSessionCount(): { active: number; corrupt: number };
   closeAll(): Promise<void>;
 }
 
@@ -227,10 +227,11 @@ export class AgentHandler {
           return;
         }
         const conn = this.deps.transport.connectionStatus();
+        const sessions = this.deps.manager.activeSessionCount();
         await this.notice(m.replyTo, chatKey, statusText({
           connected: conn.connected, authenticated: conn.authenticated,
           admins: snap.admin, approved: snap.approved, groups: snap.groups,
-          activeSessions: this.deps.manager.activeSessionCount(),
+          activeSessions: sessions.active, corruptSessions: sessions.corrupt,
           inFlight: this.deps.manager.inFlightCount(),
         }));
         return;
