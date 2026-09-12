@@ -353,7 +353,7 @@ export function statusText(snap: { connected: boolean; authenticated: boolean; a
 - Consumes: 无
 - Produces: `BotConfig.groupMentionName?: string`（trim 后非空；非法 ⇒ ConfigError）
 
-- [ ] **Step 1: Write the failing test**（追加进 `tests/unit/config.test.ts`）
+- [x] **Step 1: Write the failing test**（追加进 `tests/unit/config.test.ts`）
 
 ```ts
 test('groupMentionName：合法字符串 trim 后生效；非字符串/空白 ⇒ ConfigError；缺省 undefined', () => {
@@ -372,8 +372,8 @@ test('groupMentionName：合法字符串 trim 后生效；非字符串/空白 �
 
 （文件头部已 import `parseConfig`/`ConfigError` 的测试件沿用其既有 import；无则补 `import { parseConfig, ConfigError } from '../../src/config';`）
 
-- [ ] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/unit/config.test.ts` Expected: FAIL（`groupMentionName` 不在 BotConfig——类型错/断言 undefined 失败）
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/unit/config.test.ts` Expected: FAIL（`groupMentionName` 不在 BotConfig——类型错/断言 undefined 失败）
+- [x] **Step 3: Write the minimal implementation**
 
 `src/config.ts` BotConfig 接口追加：
 
@@ -395,13 +395,13 @@ parseConfig 尾部（`claudeModel` 块之后）追加：
   }
 ```
 
-- [ ] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/unit/config.test.ts` Expected: PASS（含既有全部）
-- [ ] **Step 5: Commit** — `git add src/config.ts tests/unit/config.test.ts && git commit -m "W3: groupMentionName config key (strict non-empty string)"`
+- [x] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/unit/config.test.ts` Expected: PASS（含既有全部）
+- [x] **Step 5: Commit** — `git add src/config.ts tests/unit/config.test.ts && git commit -m "W3: groupMentionName config key (strict non-empty string)"`
 
 ## Checkpoint A（Tasks 1–3 后）
 
-- [ ] `bun run typecheck` 通过
-- [ ] `bun test tests/unit/access.test.ts tests/unit/commands.test.ts tests/unit/config.test.ts` 全绿
+- [x] `bun run typecheck` 通过
+- [x] `bun test tests/unit/access.test.ts tests/unit/commands.test.ts tests/unit/config.test.ts` 全绿
 - [ ] `bun test`（全量）不回归——W1/W2 既有测试保持绿
 
 ### Task 4: transport 事件面扩展 — enterChat/feedbackEvent + replyWelcome + connectionStatus

@@ -14,6 +14,9 @@ export interface BotConfig {
   claudeModel?: string;
   /** W2：全局并发回合帽（资源保护；平台每用户帽是 manager 常量）；缺省 4 由 AgentManager 持有 */
   maxConcurrentTurns?: number;
+  /** W3：群 @-提及匹配名（D3——真实平台 @ 文案内嵌 content，SDK 无 mention 字段）；
+   *  groups 非空时必填（启动交叉校验在 createGateway——config 不读 access.json） */
+  groupMentionName?: string;
 }
 
 export class ConfigError extends Error {}
@@ -107,6 +110,13 @@ function parseConfig(text: string, path: string): BotConfig {
       throw new ConfigError(`claudeModel must be a non-empty string in ${path}`);
     }
     cfg.claudeModel = model.trim();
+  }
+  const mention = raw['groupMentionName'];
+  if (mention !== undefined) {
+    if (typeof mention !== 'string' || mention.trim() === '') {
+      throw new ConfigError(`groupMentionName must be a non-empty string in ${path}`);
+    }
+    cfg.groupMentionName = mention.trim();
   }
   return cfg;
 }
