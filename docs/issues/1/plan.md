@@ -1388,7 +1388,7 @@ Expected: 全绿。若 transport 测试暴露 SDK 真实行为与假设差异，
 - Consumes: Task 8 `createGateway`；Task 5 `readState/isPidAlive`；Task 3 `loadWorkspace`。
 - Produces: `runCli(argv: string[]): Promise<number>`（返回退出码；`src/cli.ts` 的 main 只做 `process.exit(await runCli(process.argv.slice(2)))`）；解析规则：`wechatbot <run|start|stop|status> [-r <workspace>] [-h|--help]`，workspace 默认 `process.cwd()`；未知命令/重复 `-r`/缺参数 → stderr + 退出 2。pidfile：`.bot/gateway.pid`。
 
-- [ ] **Step 1: 写失败测试 `tests/integration/cli.test.ts`**
+- [x] **Step 1: 写失败测试 `tests/integration/cli.test.ts`**
 
 ```ts
 import { test, expect } from 'bun:test';
@@ -1504,8 +1504,8 @@ async function waitUntil(cond: () => Promise<boolean> | boolean, ms = 15000): Pr
 }
 ```
 
-- [ ] **Step 2: 验证 FAIL** — Run: `bun test tests/integration/cli.test.ts` Expected: FAIL — `src/cli` 无 `runCli` 导出。
-- [ ] **Step 3: 重写 `src/cli.ts` 并创建四个命令模块**
+- [x] **Step 2: 验证 FAIL** — Run: `bun test tests/integration/cli.test.ts` Expected: FAIL — `src/cli` 无 `runCli` 导出。
+- [x] **Step 3: 重写 `src/cli.ts` 并创建四个命令模块**
 
 `src/cli.ts`：
 
@@ -1782,8 +1782,8 @@ export function isOurProcess(entry: PidFile): boolean {
 export { isPidAlive };
 ```
 
-- [ ] **Step 4: 验证 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration` Expected: 全绿（cli 8 项：用法/未知命令/重复 -r/帮助/AC1 坏凭据/AC1 空凭据/AC5 起停/陈旧状态）。
-- [ ] **Step 5: Commit** — `git add src/cli.ts src/commands src/pid.ts tests/integration/cli.test.ts && git commit -m "feat(cli): run/start/stop/status commands with pidfile daemon lifecycle"`
+- [x] **Step 4: 验证 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration` Expected: 全绿（cli 8 项：用法/未知命令/重复 -r/帮助/AC1 坏凭据/AC1 空凭据/AC5 起停/陈旧状态）。
+- [x] **Step 5: Commit** — `git add src/cli.ts src/commands src/pid.ts tests/integration/cli.test.ts && git commit -m "feat(cli): run/start/stop/status commands with pidfile daemon lifecycle"`
 
 ### Task 10: SPEC.md（transport 行为契约）+ README
 
