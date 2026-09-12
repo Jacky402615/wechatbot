@@ -1848,7 +1848,7 @@ WeCom 智能机器人 gateway，长连接模式。镜像 feishubot 的角色：�
 - Consumes: Task 1 `build` script。
 - Produces: `bash scripts/check-dist.sh` 退出 0 = dist 无机器路径且可执行。
 
-- [ ] **Step 1: 写 `scripts/check-dist.sh`**
+- [x] **Step 1: 写 `scripts/check-dist.sh`**
 
 ```bash
 #!/usr/bin/env bash
@@ -1871,10 +1871,10 @@ node dist/cli.js --help | grep -q 'status'   # node 强制冒烟（--target=node
 echo "OK: dist clean and runnable"
 ```
 
-- [ ] **Step 2: 构建 + 校验** — Run: `chmod +x scripts/check-dist.sh && bun install && bun run build && bun run check:dist`
+- [x] **Step 2: 构建 + 校验** — Run: `chmod +x scripts/check-dist.sh && bun install && bun run build && bun run check:dist`
   Expected: `OK: dist clean and runnable`；若 grep 命中（如 sourcemap 内路径），在 build script 追加 `--sourcemap=none` 后重验。
-- [ ] **Step 3: 确认 SDK external** — 已并入 Step 1 脚本（import 存在 + `aibot_subscribe` 不出现双断言）。
-- [ ] **Step 4: Commit** — `git add scripts/check-dist.sh && git commit -m "build: dist cleanliness gate (no machine paths, shebang, smoke)"`
+- [x] **Step 3: 确认 SDK external** — 已并入 Step 1 脚本（import 存在 + `aibot_subscribe` 不出现双断言）。
+- [x] **Step 4: Commit** — `git add scripts/check-dist.sh && git commit -m "build: dist cleanliness gate (no machine paths, shebang, smoke)"`
 
 ### Task 12: CI + GitHub Packages 发布管道
 
