@@ -46,12 +46,13 @@ export class MockWecomServer {
   get subscribeCount(): number { return this.subscribes; }
   get pingCount(): number { return this.pings; }
 
-  pushTextMessage(reqId: string, msg: { msgid: string; userId: string; content: string }): void {
+  pushTextMessage(reqId: string, msg: { msgid: string; userId: string; content: string; chatType?: 'single' | 'group'; chatid?: string }): void {
     this.broadcast({
       cmd: 'aibot_msg_callback',
       headers: { req_id: reqId },
       body: {
-        msgid: msg.msgid, aibotid: 'bot-mock', chattype: 'single',
+        msgid: msg.msgid, aibotid: 'bot-mock', chattype: msg.chatType ?? 'single',
+        ...(msg.chatType === 'group' && msg.chatid ? { chatid: msg.chatid } : {}),
         from: { userid: msg.userId }, msgtype: 'text', text: { content: msg.content },
         create_time: Math.floor(Date.now() / 1000),
       },

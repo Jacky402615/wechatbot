@@ -151,7 +151,7 @@ parseConfig 末尾追加（沿用既有 numKey 循环风格，`session_idle_ttl_
 **Interfaces:**
 - Produces: `InboundTextMessage.chatId?: string`（仅群聊在场；群帧缺 `chatid` ⇒ adapter debug 日志 + 忽略该帧）；`MockWecomServer.pushTextMessage(reqId, {msgid, userId, content, chatType?, chatid?})`。
 
-- [ ] **Step 1: 更新 DTO 断言 + 新增群帧失败测试**（`tests/integration/transport.test.ts`）
+- [x] **Step 1: 更新 DTO 断言 + 新增群帧失败测试**（`tests/integration/transport.test.ts`）
 
   既有用例 `textMessage 事件携带解析后的 DTO 与 reqId` 的期望对象改为含 `chatId: undefined`：
 
@@ -187,9 +187,9 @@ test('群聊帧：chatid 解析进 chatId；缺 chatid 的群帧被忽略', asyn
 });
 ```
 
-- [ ] **Step 2: 跑测确认 FAIL** — Run: `bun test tests/integration/transport.test.ts`
+- [x] **Step 2: 跑测确认 FAIL** — Run: `bun test tests/integration/transport.test.ts`
   Expected: FAIL（DTO 无 chatId 字段；pushTextMessage 不认 chatType/chatid）
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
   `src/transport/types.ts`：
 
@@ -250,9 +250,9 @@ export interface InboundTextMessage {
   }
 ```
 
-- [ ] **Step 4: 跑测确认 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration`
+- [x] **Step 4: 跑测确认 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration`
   Expected: PASS（echo.test.ts 的既有用例不受影响——单聊帧形状不变）
-- [ ] **Step 5: Commit** — `git add src/transport/types.ts src/transport/wecom-sdk-adapter.ts tests/helpers/mock-wecom-server.ts tests/integration/transport.test.ts && git commit -m "feat(transport): parse group chatid into chatId; ignore group frames without it"`
+- [x] **Step 5: Commit** — `git add src/transport/types.ts src/transport/wecom-sdk-adapter.ts tests/helpers/mock-wecom-server.ts tests/integration/transport.test.ts && git commit -m "feat(transport): parse group chatid into chatId; ignore group frames without it"`
 
 ---
 

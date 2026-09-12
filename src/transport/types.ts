@@ -3,6 +3,8 @@ export interface ReplyRef { readonly __brand: 'ReplyRef'; readonly reqId: string
 export interface InboundTextMessage {
   msgid: string;
   chatType: 'single' | 'group';
+  /** 仅群聊在场（SDK BaseMessage.chatid）；群帧缺失时 adapter 忽略该帧 */
+  chatId?: string;
   userId: string;
   content: string;
   replyTo: ReplyRef;
