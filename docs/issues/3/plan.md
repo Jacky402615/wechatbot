@@ -45,7 +45,7 @@
   - `export function parseAccess(text: string, path: string): AccessState`（形状不符抛 AccessError）
   - `export class AccessGate { constructor(accessPath: string, opts?: { onError?: (err: Error) => void }); load(): AccessSnapshot }`（构造即加载——启动损坏上抛；load 失败留 last-known-good）
 
-- [ ] **Step 1: Write the failing test**（`tests/unit/access.test.ts`）
+- [x] **Step 1: Write the failing test**（`tests/unit/access.test.ts`）
 
 ```ts
 import { test, expect } from 'bun:test';
@@ -118,8 +118,8 @@ test('文件缺失 ⇒ ENOENT 同为 AccessError（启动响亮）', () => {
 });
 ```
 
-- [ ] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/unit/access.test.ts` Expected: FAIL（`Cannot find module '../../src/access'`）
-- [ ] **Step 3: Write the minimal implementation**（`src/access.ts`）
+- [x] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/unit/access.test.ts` Expected: FAIL（`Cannot find module '../../src/access'`）
+- [x] **Step 3: Write the minimal implementation**（`src/access.ts`）
 
 ```ts
 import { readFileSync } from 'node:fs';
@@ -221,8 +221,8 @@ export class AccessGate {
 }
 ```
 
-- [ ] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/unit/access.test.ts` Expected: PASS（7 tests）
-- [ ] **Step 5: Commit** — `git add src/access.ts tests/unit/access.test.ts && git commit -m "W3: access.json pure module — strict parse, frame-immutable snapshot, last-known-good hot reload"`
+- [x] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/unit/access.test.ts` Expected: PASS（7 tests）
+- [x] **Step 5: Commit** — `git add src/access.ts tests/unit/access.test.ts && git commit -m "W3: access.json pure module — strict parse, frame-immutable snapshot, last-known-good hot reload"`
 
 ### Task 2: `src/commands.ts` — 命令解析与用户文案
 
