@@ -236,7 +236,7 @@ export function assertCredentials(creds: BotCredentials, envPath: string): void 
 - Consumes: Task 2 `EnvError/loadBotEnv`。
 - Produces: `interface BotConfig { logLevel: 'debug'|'info'|'warn'|'error'; heartbeatInterval?: number; maxReconnectAttempts?: number }`；`loadWorkspace(workspace: string): { workspace: string; botDir: string; config: BotConfig; creds: BotCredentials }`（首启幂等创建 `.bot/`、`sessions/ uploads/ logs/`、默认 `config.json`、`access.json` 占位 `{}`、`.env` 模板）。
 
-- [ ] **Step 1: 写失败测试 `tests/unit/config.test.ts`**
+- [x] **Step 1: 写失败测试 `tests/unit/config.test.ts`**
 
 ```ts
 import { test, expect } from 'bun:test';
@@ -280,8 +280,8 @@ test('非法 logLevel / 非法数字被拒绝', () => {
 });
 ```
 
-- [ ] **Step 2: 验证 FAIL** — Run: `bun test tests/unit/config.test.ts` Expected: FAIL — 模块不存在。
-- [ ] **Step 3: 写 `src/config.ts`**
+- [x] **Step 2: 验证 FAIL** — Run: `bun test tests/unit/config.test.ts` Expected: FAIL — 模块不存在。
+- [x] **Step 3: 写 `src/config.ts`**
 
 ```ts
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -354,8 +354,8 @@ function parseConfig(text: string, path: string): BotConfig {
 
 （注：首启模板下 `creds` 为 `{botId:'', secret:''}` **合法返回**——空值校验在 `createGateway`（Task 8）调 `assertCredentials` 完成，即 transport 启动前响亮失败；`status`/`stop` 无需凭据即可运行。）
 
-- [ ] **Step 4: 验证 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration` Expected: 全绿（config 3 项）。
-- [ ] **Step 5: Commit** — `git add src/config.ts tests/unit/config.test.ts && git commit -m "feat(config): workspace loader creating .bot tree with validated config"`
+- [x] **Step 4: 验证 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration` Expected: 全绿（config 3 项）。
+- [x] **Step 5: Commit** — `git add src/config.ts tests/unit/config.test.ts && git commit -m "feat(config): workspace loader creating .bot tree with validated config"`
 
 ### Task 4: 结构化 JSONL logger（src/logger.ts）
 
