@@ -1943,7 +1943,7 @@ jobs:
 - Consumes: Task 8 `createGateway`、Task 6 mock 服务端。
 - Produces: `bun run test:soak`（真实 30 s 心跳，10 min，中途第 5 min kill 一次验证重连）。
 
-- [ ] **Step 1: 写 `tests/soak/soak.test.ts`**
+- [x] **Step 1: 写 `tests/soak/soak.test.ts`**
 
 ```ts
 import { test, expect } from 'bun:test';
@@ -2019,11 +2019,11 @@ test('soak: 10 min 持续存活 + 中途断链有界恢复（AC2）', async () =
 
 （顺序说明：soak 是 AC2 的**时长证据**而非逻辑首验——重连/保活逻辑已由 Task 7/8 的快速集成测试（压缩心跳）先行证明；soak 文件虽在 Task 13 落地，其失败模式只会是"时序/资源"类，不会推翻已绿的结构性测试。执行者应在 Checkpoint B 之后、SPEC 定稿之前跑它，实测时延数据填入 SPEC 重连节。）
 
-- [ ] **Step 2: 执行 soak** — Run: `bun run test:soak`
+- [x] **Step 2: 执行 soak** — Run: `bun run test:soak`
   Expected: 1 passed（约 10 min）。把结果（ping 次数、subscribeCount、时长）记到看板 `### 执行日志`。
 - [ ] **Step 3: 终检** — Run: `bun run typecheck && bun test tests/unit tests/integration && bun run build && bun run check:dist && git status --porcelain`
   Expected: 全绿；工作区干净（所有任务已提交）。
-- [ ] **Step 4: Commit** — `git add tests/soak/soak.test.ts && git commit -m "test: 10-minute soak proving keepalive and mid-run reconnect (AC2)"`
+- [x] **Step 4: Commit** — `git add tests/soak/soak.test.ts && git commit -m "test: 10-minute soak proving keepalive and mid-run reconnect (AC2)"`
 
 **Checkpoint C（收尾）** — 逐条复核 Global Constraints AC1–AC6：
 - AC1 ← Task 7 transport.test + Task 9 cli.test（非零退出）。
