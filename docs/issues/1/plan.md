@@ -2034,6 +2034,18 @@ test('soak: 10 min 持续存活 + 中途断链有界恢复（AC2）', async () =
 - AC6 ← Task 11 check:dist + adapter 是唯一 SDK import 点（`grep -rl '@wecom/aibot-node-sdk' src/` 应只有 `src/transport/wecom-sdk-adapter.ts`）。
 Run: `grep -rl '@wecom/aibot-node-sdk' src/` Expected: 仅 `src/transport/wecom-sdk-adapter.ts` 一行。
 
+### Task 14: CHANGELOG.md（执行轮工作流要求——Building 指令要求 Unreleased 节，计划期未列入）
+
+**Files:**
+- Create: `CHANGELOG.md`
+
+**Interfaces:**
+- Produces: `## [Unreleased]` 节 + Added/Fixed/Changed 子节；不改 `package.json` version（版本由维护者发布动作切割）。
+
+- [x] **Step 1: 写 `CHANGELOG.md`**（Added 列 W1 交付物）
+- [x] **Step 2: 验证** — Run: `grep -c '## \[Unreleased\]' CHANGELOG.md` Expected: 1。
+- [x] **Step 3: Commit** — `git add CHANGELOG.md docs/issues/1/plan.md && git commit -m "docs: changelog unreleased section for w1 delivery"`
+
 ## 风险与缓解（显式）
 
 - **SDK 实际行为与 .d.ts 注释不符**（认证错误传递通道、被踢后是否自动重连）：高风险，Task 7 集成测试先行实证，SPEC 措辞跟随实测（D2 评审条件）；若被踢后 SDK 不自动重连，adapter 在 `kicked` 事件里补 `stop()+start()` 自愈（改动只在 adapter 内，不违 AC6）。
