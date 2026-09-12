@@ -1886,7 +1886,7 @@ echo "OK: dist clean and runnable"
 - Consumes: Task 1 scripts、Task 11 check:dist。
 - Produces: PR/push 上跑 test+typecheck+build+dist 校验；tag `v*` 发布到 GitHub Packages。
 
-- [ ] **Step 1: 写 `.github/workflows/ci.yml`**
+- [x] **Step 1: 写 `.github/workflows/ci.yml`**
 
 ```yaml
 name: ci
@@ -1907,7 +1907,7 @@ jobs:
       - run: bun run check:dist
 ```
 
-- [ ] **Step 2: 写 `.github/workflows/publish.yml`**
+- [x] **Step 2: 写 `.github/workflows/publish.yml`**
 
 ```yaml
 name: publish
@@ -1930,9 +1930,9 @@ jobs:
         env: { NODE_AUTH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
 ```
 
-- [ ] **Step 3: 验证** — Run: `bun run typecheck && grep -c 'jobs:' .github/workflows/ci.yml .github/workflows/publish.yml && grep -c '1.3.14' .github/workflows/ci.yml .github/workflows/publish.yml`
+- [x] **Step 3: 验证** — Run: `bun run typecheck && grep -c 'jobs:' .github/workflows/ci.yml .github/workflows/publish.yml && grep -c '1.3.14' .github/workflows/ci.yml .github/workflows/publish.yml`
   Expected: typecheck 0 错误；两文件各命中 `jobs:` ≥1 与版本钉死 ≥1（YAML 语法的完整校验由首个 CI 运行兜底——列入 Human-Review 观察项；不依赖宿主机 PyYAML）。
-- [ ] **Step 4: Commit** — `git add .github/workflows && git commit -m "ci: test/typecheck/dist gates and github packages publish pipeline"`
+- [x] **Step 4: Commit** — `git add .github/workflows && git commit -m "ci: test/typecheck/dist gates and github packages publish pipeline"`
 
 ### Task 13: Soak 测试（AC2 的 10 分钟证据）+ 收尾复核
 
