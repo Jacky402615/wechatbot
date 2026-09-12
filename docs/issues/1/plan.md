@@ -366,7 +366,7 @@ function parseConfig(text: string, path: string): BotConfig {
 **Interfaces:**
 - Produces: `class BotLogger`：`constructor(opts: { level: LogLevel; logDir: string; console?: boolean; now?: () => Date })`（`now` 供测试注入时钟）；`debug|info|warn|error(event: string, fields?: Record<string, unknown>): void`；`asSdkLogger(): { debug/info/warn/error(message: string, ...args: unknown[]): void }`；`close(): void`。文件 `.bot/logs/gateway-YYYYMMDD.jsonl`——**路径按每次写入时的日期解析**（长驻进程跨午夜自然滚动），每行 `{ts, level, event, ...fields}`；构造时及日期切换时清理 14 天前旧文件。
 
-- [ ] **Step 1: 写失败测试 `tests/unit/logger.test.ts`**
+- [x] **Step 1: 写失败测试 `tests/unit/logger.test.ts`**
 
 ```ts
 import { test, expect } from 'bun:test';
@@ -427,8 +427,8 @@ test('跨日滚动：时钟跨天后新写入落到新日期文件', () => {
 });
 ```
 
-- [ ] **Step 2: 验证 FAIL** — Run: `bun test tests/unit/logger.test.ts` Expected: FAIL — 模块不存在。
-- [ ] **Step 3: 写 `src/logger.ts`**
+- [x] **Step 2: 验证 FAIL** — Run: `bun test tests/unit/logger.test.ts` Expected: FAIL — 模块不存在。
+- [x] **Step 3: 写 `src/logger.ts`**
 
 ```ts
 import { appendFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
@@ -509,8 +509,8 @@ export class BotLogger {
 }
 ```
 
-- [ ] **Step 4: 验证 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration` Expected: 全绿（logger 4 项）。
-- [ ] **Step 5: Commit** — `git add src/logger.ts tests/unit/logger.test.ts && git commit -m "feat(logger): JSONL structured logger with prune and sdk adapter"`
+- [x] **Step 4: 验证 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration` Expected: 全绿（logger 4 项）。
+- [x] **Step 5: Commit** — `git add src/logger.ts tests/unit/logger.test.ts && git commit -m "feat(logger): JSONL structured logger with prune and sdk adapter"`
 
 ### Task 5: 原子状态文件（src/state.ts）
 
