@@ -521,7 +521,7 @@ export class BotLogger {
 **Interfaces:**
 - Produces: `interface GatewayState { pid: number; running: boolean; connected: boolean; authenticated: boolean; updatedAt: string; lastError?: string; kickedCount: number; reconnects: number; lastEventAt?: string }`；`class StateError extends Error`；`writeState(botDir: string, state: GatewayState): void`（tmp+rename 原子；**写失败打 stderr 后抛 `StateError`**，由 Gateway 捕获记日志、置内存 lastError——不吞）；`readState(botDir: string): GatewayState | null`（**文件缺失返回 null；文件存在但损坏抛 `StateError`**——status 捕获后显式报 `state corrupt`，与"无状态"区分）；`isPidAlive(pid: number): boolean`（`process.kill(pid, 0)`，EPERM 视为存活但非本用户进程）。
 
-- [ ] **Step 1: 写失败测试 `tests/unit/state.test.ts`**
+- [x] **Step 1: 写失败测试 `tests/unit/state.test.ts`**
 
 ```ts
 import { test, expect } from 'bun:test';
@@ -567,8 +567,8 @@ test('readState：缺失返回 null；损坏抛 StateError；writeState 失败�
 
 （`readdirSync` 需在测试文件顶部 `import { readdirSync } from 'node:fs';` 与第一个 import 合并。）
 
-- [ ] **Step 2: 验证 FAIL** — Run: `bun test tests/unit/state.test.ts` Expected: FAIL — 模块不存在。
-- [ ] **Step 3: 写 `src/state.ts`**
+- [x] **Step 2: 验证 FAIL** — Run: `bun test tests/unit/state.test.ts` Expected: FAIL — 模块不存在。
+- [x] **Step 3: 写 `src/state.ts`**
 
 ```ts
 import { existsSync, readFileSync, renameSync, writeFileSync, readdirSync } from 'node:fs';
@@ -622,8 +622,8 @@ export function isPidAlive(pid: number): boolean {
 
 （"写的是合法 JSON"测试内 `readdirSync(dir)` 检查无 `.tmp` 残留——`readdirSync` 已在 import 列表。）
 
-- [ ] **Step 4: 验证 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration` Expected: 全绿（state 4 项）。
-- [ ] **Step 5: Commit** — `git add src/state.ts tests/unit/state.test.ts && git commit -m "feat(state): atomic gateway state file with pid liveness"`
+- [x] **Step 4: 验证 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration` Expected: 全绿（state 4 项）。
+- [x] **Step 5: Commit** — `git add src/state.ts tests/unit/state.test.ts && git commit -m "feat(state): atomic gateway state file with pid liveness"`
 
 **Checkpoint A（Task 5 后）** — Run: `bun run typecheck && bun test tests/unit`
 Expected: typecheck 0 错误；unit 全绿。任一红即停下修复，不带病前进。
