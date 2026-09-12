@@ -24,17 +24,20 @@ export async function start(opts: { workspace: string }): Promise<number> {
   });
   child.unref();
   const pid = child.pid!;
+  // exit 事件而非 kill(pid,0) 轮询：detached 子进程退出（含被 reap 前的僵尸窗口）都能观测
+  let childExited = false;
+  child.once('exit', () => { childExited = true; });
   try {
     writePidFile(pidPath, pid);   // 立即持久化：失败则杀掉子进程，不留孤儿网关
   } catch (e) {
-    killChild(child);
+    await killChild(child);
     process.stderr.write(`[wechatbot] pidfile 写入失败，已终止子进程: ${(e as Error).message}\n`);
     return 1;
   }
   // 轮询到"确认已连接 / 子进程退出 / 超时"——start 返回 0 必须意味着订阅已确认
-  const connected = await confirmStartup(child, ws.botDir, pid);
+  const connected = await confirmStartup(() => childExited, ws.botDir, pid);
   if (!connected) {
-    killChild(child);
+    await killChild(child);
     rmSync(pidPath, { force: true });
     process.stderr.write(`网关未能确认连接（子进程退出或 ${START_CONFIRM_TIMEOUT_MS / 1000}s 超时）；详见 ${ws.botDir}/logs/daemon-stderr.log\n`);
     return 1;
@@ -43,10 +46,10 @@ export async function start(opts: { workspace: string }): Promise<number> {
   return 0;
 }
 
-async function confirmStartup(child: ChildProcess, botDir: string, pid: number): Promise<boolean> {
+async function confirmStartup(childExited: () => boolean, botDir: string, pid: number): Promise<boolean> {
   const deadline = Date.now() + START_CONFIRM_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if (!isPidAlive(pid)) return false;             // 子进程已响亮退出（AC1 路径）
+    if (childExited()) return false;                // 子进程已响亮退出（AC1 路径）
     try {
       const st = readState(botDir);
       if (st?.connected === true && st.pid === pid) return true;
@@ -56,8 +59,15 @@ async function confirmStartup(child: ChildProcess, botDir: string, pid: number):
   return false;
 }
 
-function killChild(child: ChildProcess): void {
-  try {
-    if (child.pid) process.kill(child.pid, 'SIGKILL');
-  } catch { /* 已退出 */ }
+async function killChild(child: ChildProcess): Promise<void> {
+  if (child.pid) {
+    try {
+      process.kill(child.pid, 'SIGKILL');
+    } catch { /* ESRCH：已退出 */ }
+  }
+  // 有界等待退出：不因清理路径挂死 start
+  await Promise.race([
+    new Promise<void>((r) => child.once('exit', () => r())),
+    new Promise<void>((r) => setTimeout(r, 3000)),
+  ]);
 }

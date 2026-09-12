@@ -30,9 +30,13 @@ export function readPidFile(path: string): PidFile | null {
   if (!existsSync(path)) return null;
   try {
     const raw = JSON.parse(readFileSync(path, 'utf8')) as Partial<PidFile>;
-    if (typeof raw.pid !== 'number' || raw.pid <= 0) return null;
+    if (typeof raw.pid !== 'number' || raw.pid <= 0) {
+      process.stderr.write(`[wechatbot] pidfile 内容无效（pid 字段缺失），视为无记录: ${path}\n`);
+      return null;
+    }
     return { pid: raw.pid, startedAt: typeof raw.startedAt === 'number' ? raw.startedAt : null };
-  } catch {
+  } catch (e) {
+    process.stderr.write(`[wechatbot] pidfile 无法解析，视为无记录: ${path}: ${(e as Error).message}\n`);
     return null;
   }
 }

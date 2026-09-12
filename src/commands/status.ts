@@ -1,14 +1,14 @@
 import { join } from 'node:path';
-import { loadWorkspace } from '../config';
 import { readPidFile, isOurProcess } from '../pid';
 import { readState, StateError } from '../state';
 
 export async function status(opts: { workspace: string }): Promise<number> {
-  const ws = loadWorkspace(opts.workspace);
-  const entry = readPidFile(join(ws.botDir, 'gateway.pid'));
+  // 管理面不依赖 config/.env 校验：config 损坏也必须能报告连接状态
+  const botDir = join(opts.workspace, '.bot');
+  const entry = readPidFile(join(botDir, 'gateway.pid'));
   let st = null;
   try {
-    st = readState(ws.botDir);
+    st = readState(botDir);
   } catch (e) {
     if (e instanceof StateError) {
       process.stdout.write(`wechatbot: state corrupt (${e.message})\n`);

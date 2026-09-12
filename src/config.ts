@@ -38,7 +38,8 @@ export function loadWorkspace(workspace: string): Workspace {
     try {
       if (statSync(envPath).mode & 0o077) chmodSync(envPath, 0o600); // 修复宽松权限
     } catch (e) {
-      process.stderr.write(`cannot tighten ${envPath} perms: ${(e as Error).message}\n`);
+      // fail-closed：凭据仍暴露时拒绝继续读取/启动
+      throw new ConfigError(`cannot tighten ${envPath} perms to 0600: ${(e as Error).message}`);
     }
   }
   const config = parseConfig(readFileSync(configPath, 'utf8'), configPath);
