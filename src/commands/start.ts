@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, openSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadWorkspace } from '../config';
-import { readPidFileDetailed, writePidFile, isOurProcess } from '../pid';
+import { readPidFileDetailed, writePidFile, isOurProcess, processStartTime } from '../pid';
 import { readState } from '../state';
 
 const START_CONFIRM_TIMEOUT_MS = 45_000;   // 认证退避下坏凭据 ~30-35s 才响亮退出，留余量
@@ -23,6 +23,8 @@ export async function start(opts: { workspace: string }): Promise<number> {
   mkdirSync(join(ws.botDir, 'logs'), { recursive: true });
   const outFd = openSync(join(ws.botDir, 'logs', 'daemon-stdout.log'), 'a');
   const errFd = openSync(join(ws.botDir, 'logs', 'daemon-stderr.log'), 'a');
+  // 清掉陈旧 state.json：旧记录的 authenticated:true + pid 复用可能让确认轮询假阳性
+  rmSync(join(ws.botDir, 'state.json'), { force: true });
   const child = spawn(process.execPath, [process.argv[1]!, 'run', '-r', opts.workspace], {
     detached: true, stdio: ['ignore', outFd, errFd], env: process.env,
   });
@@ -31,11 +33,14 @@ export async function start(opts: { workspace: string }): Promise<number> {
   // exit 事件而非 kill(pid,0) 轮询：detached 子进程退出（含被 reap 前的僵尸窗口）都能观测
   let childExited = false;
   child.once('exit', () => { childExited = true; });
+  // 归属不可验证（无 /proc starttime）：不写 pidfile，终止子进程后失败退出
+  if (processStartTime(pid) === null) {
+    await killChild(child, () => childExited);
+    process.stderr.write('[wechatbot] 无法读取子进程 /proc starttime（pid 归属不可校验）：本网关仅支持 Linux\n');
+    return 1;
+  }
   try {
-    const entry = writePidFile(pidPath, pid);   // 立即持久化：失败则杀掉子进程，不留孤儿网关
-    if (entry.startedAt === null) {
-      throw new Error('cannot read /proc starttime — pid ownership unverifiable on this platform');
-    }
+    writePidFile(pidPath, pid);   // 立即持久化：失败则杀掉子进程，不留孤儿网关
   } catch (e) {
     await killChild(child, () => childExited);
     process.stderr.write(`[wechatbot] pidfile 写入失败，已终止子进程: ${(e as Error).message}\n`);

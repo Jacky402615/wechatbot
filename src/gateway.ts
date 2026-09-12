@@ -1,10 +1,10 @@
 import { join } from 'node:path';
-import { loadWorkspace, type Workspace } from './config';
+import { loadWorkspace, type Workspace, ConfigError } from './config';
 import { BotLogger } from './logger';
 import { writeState, StateError, type GatewayState } from './state';
 import { WecomSdkTransport } from './transport/wecom-sdk-adapter';
 import type { TransportOptions, WeComTransport } from './transport/types';
-import { assertCredentials } from './env';
+import { assertCredentials, EnvError } from './env';
 import { EchoHandler } from './handlers/echo';
 
 export class Gateway {
@@ -27,8 +27,11 @@ export class Gateway {
 
   async start(): Promise<void> {
     // EchoHandler 必须先于 transport.start() 注册：认证完成的瞬间 handler 已就位，
-    // 消除"authenticated 与注册之间"的丢消息窗口。
-    new EchoHandler(this.opts.transport, this.opts.logger).register();
+    // 消除"authenticated 与注册之间"的丢消息窗口。回复失败路由回 Gateway 的 error
+    // 处理（持久化 lastError，feishubot #62 不吞）。
+    new EchoHandler(this.opts.transport, this.opts.logger, {
+      onReplyError: (err) => this.onEvent({ type: 'error', error: err }),
+    }).register();
     try {
       await this.opts.transport.start();
     } catch (e) {
@@ -114,7 +117,17 @@ export async function createGateway(
   workspace: string,
   overrides: Partial<TransportOptions> = {},
 ): Promise<{ gateway: Gateway; workspace: Workspace }> {
-  const ws = loadWorkspace(workspace);
+  let ws: Workspace;
+  try {
+    ws = loadWorkspace(workspace);
+  } catch (e) {
+    // 键缺失/配置损坏发生在 logger 构造之前——用兜底 logger 留 JSONL 痕迹再抛（AC1 可观测性）
+    if (e instanceof EnvError || e instanceof ConfigError) {
+      const fallback = new BotLogger({ level: 'info', logDir: join(workspace, '.bot', 'logs'), console: false });
+      fallback.error('startup failed: credentials/config', { err: e.message });
+    }
+    throw e;
+  }
   const logger = new BotLogger({ level: ws.config.logLevel, logDir: join(ws.botDir, 'logs'), console: true });
   try {
     assertCredentials(ws.creds, join(ws.botDir, '.env'));   // 空凭据在此响亮失败（AC1 前置）

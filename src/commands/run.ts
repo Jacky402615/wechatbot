@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { createGateway, type Gateway } from '../gateway';
 import { EnvError } from '../env';
 import { ConfigError } from '../config';
-import { writePidFile, readPidFile, readPidFileDetailed, isOurProcess } from '../pid';
+import { writePidFile, readPidFile, readPidFileDetailed, isOurProcess, processStartTime } from '../pid';
 
 export async function run(opts: { workspace: string }): Promise<number> {
   const botDir = join(opts.workspace, '.bot');
@@ -73,10 +73,15 @@ export async function run(opts: { workspace: string }): Promise<number> {
     return 1;
   }
   // 前台运行也持有 pidfile：status/stop 才能对 run 模式给出真实连接状态。
-  // 持久化失败或无 /proc starttime（无法做归属校验）即视为启动失败。
+  // 归属不可验证（无 /proc starttime）时：不写记录、停网关、失败退出。
+  const startedAt = processStartTime(process.pid);
+  if (startedAt === null) {
+    process.stderr.write('[wechatbot] 无法读取 /proc starttime（pid 归属不可校验），停止网关：本网关仅支持 Linux\n');
+    await gateway.stop();
+    return 1;
+  }
   try {
-    const entry = writePidFile(pidPath, process.pid);
-    if (entry.startedAt === null) throw new Error('cannot read /proc starttime — pid ownership unverifiable on this platform');
+    writePidFile(pidPath, process.pid);
   } catch (e) {
     process.stderr.write(`[wechatbot] pidfile 写入失败，停止网关: ${(e as Error).message}\n`);
     await gateway.stop();

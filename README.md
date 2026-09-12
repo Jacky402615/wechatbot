@@ -16,7 +16,8 @@ agent 会话层（spawn `claude` per chat）将在后续版本落地。完整行
 npm install @jacky402615/wechatbot
 ```
 
-要求：Node ≥ 22 或 Bun ≥ 1.3（dist 双运行时可执行）。
+要求：Node ≥ 22 或 Bun ≥ 1.3（dist 双运行时可执行）；**运行网关（`run`/`start`）需要 Linux**——
+pidfile 归属校验依赖 `/proc/<pid>/stat`，不可校验的平台会拒绝启动（`status`/`stop` 等管理命令不受限）。
 
 ## 快速开始
 

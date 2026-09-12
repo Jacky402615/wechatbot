@@ -44,6 +44,13 @@ export async function stop(opts: { workspace: string }): Promise<number> {
       }
     }
     process.stdout.write(`pid ${pid} 未在 5s 内退出，已 SIGKILL\n`);
+    // 确认死亡后才清理归属记录：否则紧接着的 start 可能造出竞争连接
+    const killDeadline = Date.now() + 3000;
+    while (Date.now() < killDeadline && isPidAlive(pid)) await new Promise((r) => setTimeout(r, 100));
+    if (isPidAlive(pid)) {
+      process.stderr.write(`[wechatbot] pid ${pid} SIGKILL 后 ${3}s 仍存活，保留 pidfile 供人工处置\n`);
+      return 1;
+    }
   }
   rmSync(pidPath, { force: true });
   try {

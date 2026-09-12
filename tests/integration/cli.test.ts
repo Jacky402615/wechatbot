@@ -57,6 +57,18 @@ test('AC1 空凭据：非零退出 + JSONL ERROR 记录', async () => {
   expect(logText).toMatch(/"event":"startup failed: credentials"/);
 });
 
+test('AC1 键整行缺失：同样有 JSONL ERROR 留痕（logger 前置兜底）', async () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wb-cli-'));
+  const { loadWorkspace } = await import('../../src/config');
+  loadWorkspace(ws);
+  writeFileSync(join(ws, '.bot', '.env'), 'WECOM_BOT_ID=b\n');   // WECOM_SECRET 行缺失
+  const r = spawnSync('bun', ['src/cli.ts', 'run', '-r', ws], { timeout: 20_000 });
+  expect(r.status).toBe(1);
+  const logsDir = join(ws, '.bot', 'logs');
+  const logText = readdirSync(logsDir).map((f) => readFileSync(join(logsDir, f!), 'utf8')).join('');
+  expect(logText).toMatch(/"event":"startup failed: credentials\/config"/);
+});
+
 test('AC5：start 后 status 报告 connected，stop 后 not running', async () => {
   const ws = mkdtempSync(join(tmpdir(), 'wb-cli-'));
   const srv = new MockWecomServer();

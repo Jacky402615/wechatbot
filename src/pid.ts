@@ -31,13 +31,15 @@ export function writePidFile(path: string, pid: number): PidFile {
 
 export type PidFileRead = { kind: 'missing' } | { kind: 'invalid' } | { kind: 'ok'; entry: PidFile };
 
-/** 启动路径用：区分"无记录"与"记录损坏"——损坏时拒绝启动（可能是活网关的记录） */
+/** 启动路径用：区分"无记录"与"记录损坏/不可验证"——后者拒绝启动（可能是活网关的记录） */
 export function readPidFileDetailed(path: string): PidFileRead {
   if (!existsSync(path)) return { kind: 'missing' };
   try {
     const raw = JSON.parse(readFileSync(path, 'utf8')) as Partial<PidFile>;
     if (typeof raw.pid !== 'number' || raw.pid <= 0) return { kind: 'invalid' };
-    return { kind: 'ok', entry: { pid: raw.pid, startedAt: typeof raw.startedAt === 'number' ? raw.startedAt : null } };
+    // startedAt 缺失 = 归属不可验证：按 invalid 处理——本仓写入前必检，只会来自外来/遗留写入
+    if (typeof raw.startedAt !== 'number') return { kind: 'invalid' };
+    return { kind: 'ok', entry: { pid: raw.pid, startedAt: raw.startedAt } };
   } catch {
     return { kind: 'invalid' };
   }
