@@ -39,7 +39,7 @@
 **Interfaces:**
 - Produces: `bun run typecheck` / `bun test` / `bun run build` 三个 script 入口；npm 包名 `@jacky402615/wechatbot`。
 
-- [ ] **Step 1: 写 `package.json`**
+- [x] **Step 1: 写 `package.json`**
 
 ```json
 {
@@ -72,7 +72,7 @@
 }
 ```
 
-- [ ] **Step 2: 写 `tsconfig.json`**
+- [x] **Step 2: 写 `tsconfig.json`**
 
 ```json
 {
@@ -94,7 +94,7 @@
 }
 ```
 
-- [ ] **Step 3: 写 `.gitignore`**
+- [x] **Step 3: 写 `.gitignore`**
 
 ```gitignore
 node_modules/
@@ -103,17 +103,17 @@ dist/
 *.log
 ```
 
-- [ ] **Step 4: 写占位 `src/cli.ts`**（首行 shebang 必须保留到最终 dist——Task 11 校验依赖它）
+- [x] **Step 4: 写占位 `src/cli.ts`**（首行 shebang 必须保留到最终 dist——Task 11 校验依赖它）
 
 ```ts
 #!/usr/bin/env node
 console.log('wechatbot scaffold');
 ```
 
-- [ ] **Step 5: 建 tests 目录骨架**（后续所有任务的 full gate 依赖这两个目录存在）— `mkdir -p tests/unit tests/integration tests/soak tests/helpers && touch tests/unit/.gitkeep tests/integration/.gitkeep tests/soak/.gitkeep`
-- [ ] **Step 6: 安装并验证** — Run: `bun install && bun run typecheck && bun test tests/unit tests/integration`
+- [x] **Step 5: 建 tests 目录骨架**（后续所有任务的 full gate 依赖这两个目录存在）— `mkdir -p tests/unit tests/integration tests/soak tests/helpers && touch tests/unit/.gitkeep tests/integration/.gitkeep tests/soak/.gitkeep`
+- [x] **Step 6: 安装并验证** — Run: `bun install && bun run typecheck && bun test tests/unit tests/integration`
   Expected: install 成功生成 `bun.lock`；typecheck 0 错误；bun test 报 0 tests 且退出 0。
-- [ ] **Step 7: Commit** — `git add package.json tsconfig.json .gitignore src/cli.ts bun.lock tests && git commit -m "chore: bun+ts scaffold with sdk dependency and gate scripts"`
+- [x] **Step 7: Commit** — `git add package.json tsconfig.json .gitignore src/cli.ts bun.lock tests && git commit -m "chore: bun+ts scaffold with sdk dependency and gate scripts"`
 
 ### Task 2: `.bot/.env` 显式解析（src/env.ts）
 
@@ -124,7 +124,7 @@ console.log('wechatbot scaffold');
 **Interfaces:**
 - Produces: `parseEnvFile(text: string): Record<string, string>`；`loadBotEnv(botDir: string): { botId: string; secret: string }`——**仅在键整行缺失时抛 `EnvError`**（message 含缺失键名与文件路径）；键存在但值为空串**合法返回**（首启模板场景）；`assertCredentials(creds: BotCredentials, envPath: string): void`——空值在此抛 `EnvError`（调用点：`createGateway`，即 transport 启动前）。
 
-- [ ] **Step 1: 写失败测试 `tests/unit/env.test.ts`**
+- [x] **Step 1: 写失败测试 `tests/unit/env.test.ts`**
 
 ```ts
 import { test, expect } from 'bun:test';
@@ -172,9 +172,9 @@ test('loadBotEnv 允许空值（首启模板）；assertCredentials 拒绝空值
 });
 ```
 
-- [ ] **Step 2: 验证 FAIL** — Run: `bun test tests/unit/env.test.ts`
+- [x] **Step 2: 验证 FAIL** — Run: `bun test tests/unit/env.test.ts`
   Expected: FAIL — `Cannot find module '../../src/env'`。
-- [ ] **Step 3: 写 `src/env.ts`**
+- [x] **Step 3: 写 `src/env.ts`**
 
 ```ts
 import { readFileSync } from 'node:fs';
@@ -223,8 +223,8 @@ export function assertCredentials(creds: BotCredentials, envPath: string): void 
 }
 ```
 
-- [ ] **Step 4: 验证 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration` Expected: 全绿（env 4 项）。
-- [ ] **Step 5: Commit** — `git add src/env.ts tests/unit/env.test.ts && git commit -m "feat(env): explicit .bot/.env parser with loud missing-credential errors"`
+- [x] **Step 4: 验证 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration` Expected: 全绿（env 4 项）。
+- [x] **Step 5: Commit** — `git add src/env.ts tests/unit/env.test.ts && git commit -m "feat(env): explicit .bot/.env parser with loud missing-credential errors"`
 
 ### Task 3: workspace 加载与 `.bot/` 目录树（src/config.ts）
 
