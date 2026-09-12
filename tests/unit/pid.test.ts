@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { parseStartTime, processStartTime, isPidAlive } from '../../src/pid';
+import { parseStartTime, processStartTime, isPidAlive, isOurProcess } from '../../src/pid';
 
 test('parseStartTime：comm 含空格/括号也能取到字段 22', () => {
   // 真实布局：pid (comm) state ppid ... starttime(字段22) ...
@@ -13,4 +13,13 @@ test('parseStartTime：comm 含空格/括号也能取到字段 22', () => {
 test('processStartTime/isPidAlive 对自身进程自洽', () => {
   expect(processStartTime(process.pid)).toBeGreaterThan(0);
   expect(isPidAlive(process.pid)).toBe(true);
+});
+
+test('isOurProcess：匹配自身 true；startedAt 缺失/不匹配/死 pid 一律 false', () => {
+  const mine = processStartTime(process.pid);
+  expect(mine).not.toBe(null);
+  expect(isOurProcess({ pid: process.pid, startedAt: mine })).toBe(true);
+  expect(isOurProcess({ pid: process.pid, startedAt: null })).toBe(false);      // 宁可拒判，不盲杀
+  expect(isOurProcess({ pid: process.pid, startedAt: (mine ?? 0) + 12345 })).toBe(false); // pid 复用形态
+  expect(isOurProcess({ pid: 2 ** 22, startedAt: 42 })).toBe(false);            // 死 pid
 });

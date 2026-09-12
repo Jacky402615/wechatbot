@@ -66,10 +66,17 @@ export class BotLogger {
         if (!m) continue;
         const day = m[1]!;
         const ts = Date.parse(`${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6, 8)}`);
-        if (Number.isFinite(ts) && ts < cutoff) rmSync(join(this.opts.logDir, name));
+        if (Number.isFinite(ts) && ts < cutoff) {
+          try {
+            rmSync(join(this.opts.logDir, name));
+          } catch (e) {
+            // 单文件清理失败可见，不影响其余清理（不吞）
+            process.stderr.write(`log prune failed for ${name}: ${(e as Error).message}\n`);
+          }
+        }
       }
-    } catch {
-      /* 目录尚不存在：构造方已保证存在 */
+    } catch (e) {
+      process.stderr.write(`log prune readdir failed: ${(e as Error).message}\n`);
     }
   }
 }

@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { mkdtempSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync, spawn } from 'node:child_process';
 import { join } from 'node:path';
@@ -90,6 +90,46 @@ test('status：pid 死亡时归一陈旧状态（无僵尸 connected）', async 
   expect(out).toMatch(/"stale": true/);
   expect(out).toMatch(/"running": false/);
 });
+
+test('前台 run 也持有 pidfile：运行中 status 报 connected，退出后 not running', async () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wb-cli-'));
+  const { loadWorkspace } = await import('../../src/config');
+  loadWorkspace(ws);
+  writeFileSync(join(ws, '.bot', '.env'), 'WECOM_BOT_ID=b\nWECOM_SECRET=good\n');
+  writeFileSync(join(ws, '.bot', 'config.json'), JSON.stringify({ logLevel: 'info', heartbeatInterval: 500 }));
+  const srv = new MockWecomServer();
+  const { url } = await srv.start();
+  const child = spawn('bun', ['src/cli.ts', 'run', '-r', ws], {
+    env: { ...process.env, WECOM_WS_URL: url },
+    stdio: 'ignore',
+  });
+  try {
+    await waitUntil(async () => (await runCliOut(['status', '-r', ws])).includes('"connected": true'), 15_000);
+  } finally {
+    child.kill('SIGTERM');
+    await new Promise<number>((r) => child.once('exit', (c) => r(c ?? -1)));
+  }
+  const after = await runCliOut(['status', '-r', ws]);
+  expect(after).toMatch(/"running": false|not running/);
+  await srv.stop();
+}, 60_000);
+
+test('start 对坏凭据：确认轮询等到子进程响亮退出后返回 1，并清理 pidfile', async () => {
+  const ws = mkdtempSync(join(tmpdir(), 'wb-cli-'));
+  const { loadWorkspace } = await import('../../src/config');
+  loadWorkspace(ws);
+  writeFileSync(join(ws, '.bot', '.env'), 'WECOM_BOT_ID=b\nWECOM_SECRET=bad\n');
+  const srv = new MockWecomServer({ authErrcode: 40001 });
+  const { url } = await srv.start();
+  const r = spawnSync('bun', ['src/cli.ts', 'start', '-r', ws], {
+    env: { ...process.env, WECOM_WS_URL: url },
+    timeout: 60_000,
+  });
+  expect(r.status).toBe(1);
+  expect(r.stderr.toString()).toMatch(/未能确认连接|启动即退出|daemon-stderr/);
+  expect(existsSync(join(ws, '.bot', 'gateway.pid'))).toBe(false);
+  await srv.stop();
+}, 90_000);
 
 async function runCliOut(argv: string[]): Promise<string> {
   const r = spawnSync('bun', ['src/cli.ts', ...argv], { timeout: 15_000 });

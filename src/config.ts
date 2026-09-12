@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadBotEnv, type BotCredentials } from './env';
 
@@ -32,7 +32,14 @@ export function loadWorkspace(workspace: string): Workspace {
   if (!existsSync(configPath)) writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2) + '\n');
   const envPath = join(botDir, '.env');
   if (!existsSync(envPath)) {
-    writeFileSync(envPath, 'WECOM_BOT_ID=\nWECOM_SECRET=\n');
+    // 凭据文件：创建即 0600，避免 WECOM_SECRET 被 同机其他用户读取
+    writeFileSync(envPath, 'WECOM_BOT_ID=\nWECOM_SECRET=\n', { mode: 0o600 });
+  } else {
+    try {
+      if (statSync(envPath).mode & 0o077) chmodSync(envPath, 0o600); // 修复宽松权限
+    } catch (e) {
+      process.stderr.write(`cannot tighten ${envPath} perms: ${(e as Error).message}\n`);
+    }
   }
   const config = parseConfig(readFileSync(configPath, 'utf8'), configPath);
   const creds = loadBotEnv(botDir);
@@ -56,8 +63,14 @@ function parseConfig(text: string, path: string): BotConfig {
   for (const numKey of ['heartbeatInterval', 'maxReconnectAttempts'] as const) {
     const v = raw[numKey];
     if (v !== undefined) {
-      if (typeof v !== 'number' || !Number.isFinite(v)) {
-        throw new ConfigError(`${numKey} must be a number in ${path}`);
+      if (typeof v !== 'number' || !Number.isInteger(v)) {
+        throw new ConfigError(`${numKey} must be an integer in ${path}`);
+      }
+      if (numKey === 'heartbeatInterval' && v <= 0) {
+        throw new ConfigError(`heartbeatInterval must be > 0 in ${path}`);   // 0/负数 = 心跳热循环
+      }
+      if (numKey === 'maxReconnectAttempts' && v < -1) {
+        throw new ConfigError(`maxReconnectAttempts must be -1 (infinite) or >= 0 in ${path}`);
       }
       cfg[numKey] = v;
     }

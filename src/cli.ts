@@ -46,8 +46,23 @@ export async function runCli(argv: string[]): Promise<number> {
   return 2; // 上方 includes 校验后不可达
 }
 
-// 可移植入口判断（node/bun 双运行时；import.meta.main 是 Bun 专属）
-import { pathToFileURL } from 'node:url';
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// 可移植入口判断（node/bun 双运行时；import.meta.main 是 Bun 专属）。
+// 双侧 realpath：npm bin 软链时 argv[1] 可能保留链接路径而模块已被运行时 realpath。
+import { realpathSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+function isEntry(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    const fromArgv = realpathSync(process.argv[1]);
+    let fromModule = fileURLToPath(import.meta.url);
+    try { fromModule = realpathSync(fromModule); } catch { /* 模块路径不可 realpath 时保原值 */ }
+    return fromArgv === fromModule;
+  } catch {
+    return false;
+  }
+}
+
+if (isEntry()) {
   process.exit(await runCli(process.argv.slice(2)));
 }

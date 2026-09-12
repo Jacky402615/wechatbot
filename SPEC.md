@@ -12,13 +12,15 @@ WeCom 智能机器人 gateway，长连接模式。镜像 feishubot 的角色：�
   由 transport 启动超时兜底——ERROR 日志 + 进程非零退出（不静默、不空转）。
 - 心跳：SDK 内建 ping，默认 30 s（config.json `heartbeatInterval` 可调）。
   实测（soak，mock 服务端）：10 min 存活 19 次心跳，无失联。
-- 重连（异常断链，非被踢）：SDK 内建指数退避——基础延迟 1 s、上限 30 s
-  （`reconnectInterval` 可压低），默认无限重试（`maxReconnectAttempts: -1`，config.json 可调）。
+- 重连（异常断链，非被踢）：SDK 内建退避重连——指数退避与 1 s 基础延迟 / 30 s 上限
+  **来自 SDK 1.0.7 源码声明**（本仓测试实测到单点重连时延，未断言完整指数序列），
+  默认无限重试（`maxReconnectAttempts: -1`，config.json 可调）。
   实测（soak，reconnectInterval=200 ms）：kill 后 +207 ms 重新 subscribe，+1002 ms 完全恢复，
   恢复后 10 min 内零再次失联。
 - 被踢（`disconnected_event`）：有新连接顶替旧连接。SDK 1.0.7 在此路径不自动重连
   （内置 isManualClose），由 adapter 延迟重新订阅自愈：默认 5 s（防与顶替者互踢），
-  认证耗尽类致命错误不重试。网关不重启：记录 ERROR 与 kickedCount，恢复后继续应答。
+  认证耗尽类致命错误不重试（直接命中或 wrapped cause 均识别）。网关不重启：记录 ERROR
+  与 kickedCount，恢复后继续应答。
   实测（集成测试，压缩延迟 150 ms）：被踢 → 重订阅 → 新消息自动 echo 成功。
 - 单连接约束：一个 bot 同时只有一条活动连接。
 
@@ -31,10 +33,18 @@ WeCom 智能机器人 gateway，长连接模式。镜像 feishubot 的角色：�
 ## CLI（W1 契约）
 
 - `wechatbot run|start|stop|status [-r <workspace>]`；`-r` 默认 `$PWD`。
-- `.bot/` 布局：`.env`（凭据）、`config.json`（logLevel / heartbeatInterval / maxReconnectAttempts）、
+- `.bot/` 布局：`.env`（凭据，权限 0600——创建即收紧，宽松会被修复）、
+  `config.json`（logLevel / heartbeatInterval / maxReconnectAttempts——后两者必须整数，
+  心跳 > 0，重连次数 -1 或 ≥ 0，非法值启动即拒）、
   `access.json`（W3 前为空占位）、`sessions/ uploads/ logs/`、`state.json`（status 数据源）、
-  `gateway.pid`（守护 pidfile，JSON：pid + /proc starttime 防 pid 复用）。
+  `gateway.pid`（pidfile，JSON：pid + /proc starttime 防 pid 复用；**前台 run 与后台 start 都持有**，
+  退出时清理）。
+- pid 归属：仅当 pid 存活**且** starttime 匹配才认定为我们的网关；记录缺失/不匹配一律拒绝
+  （status 报陈旧、stop 不发信号——宁可误报未运行，不误杀无关进程）。
+- `start` 语义：轮询至"订阅确认连接 / 子进程退出 / 45 s 超时"才返回——返回 0 即已确认连接；
+  失败/超时杀子进程、清 pidfile、返回 1。
 - 日志：`.bot/logs/gateway-YYYYMMDD.jsonl`，JSONL，按日切分，保留 14 天。
+  写失败/清理失败：stderr 留痕，不中断消息面。
 - `status`：pid 存活且归属匹配时输出完整状态 JSON；pid 已死时把 running/connected 归一为
   false 并标 `stale: true`（无僵尸 connected）；state 损坏时显式报 `state corrupt`（退出 1）。
-- 退出码：0 正常；1 运行期失败（凭据/订阅/启动即死）；2 用法错误。
+- 退出码：0 正常；1 运行期失败（凭据/订阅/启动即死/优雅关闭失败）；2 用法错误。

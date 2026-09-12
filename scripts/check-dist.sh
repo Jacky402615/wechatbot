@@ -15,4 +15,9 @@ if grep -rq 'aibot_subscribe' dist/; then
 fi
 bun dist/cli.js --help | grep -q 'status'    # 冒烟断言帮助文本真实输出（防空转退出 0 的假绿）
 node dist/cli.js --help | grep -q 'status'   # node 强制冒烟（--target=node 契约，同样断言文本）
+# npm bin 软链场景：入口判断必须穿透 symlink（realpath 双侧比对）
+link_smoke="$(mktemp -u /tmp/wechatbot-smoke-XXXX.js)"
+ln -sf "$(pwd)/dist/cli.js" "$link_smoke"
+node "$link_smoke" --help | grep -q 'status'
+rm -f "$link_smoke"
 echo "OK: dist clean and runnable"

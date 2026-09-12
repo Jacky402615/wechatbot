@@ -61,7 +61,7 @@ export class WecomSdkTransport implements WeComTransport {
       client.on('reconnecting', (attempt: number) => this.emit({ type: 'reconnecting', attempt }));
       client.on('error', (err: Error) => {
         this.emit({ type: 'error', error: err });
-        if (err instanceof WSAuthFailureError || (err as { code?: string }).code === 'WS_AUTH_FAILURE_EXHAUSTED') {
+        if (isFatalAuthError(err)) {
           fail(new Error(`subscribe failed: ${err.message}`, { cause: err }));
         }
       });
@@ -115,8 +115,7 @@ export class WecomSdkTransport implements WeComTransport {
       await this.start();
     } catch (e) {
       this.emit({ type: 'error', error: e as Error });
-      const cause = (e as { cause?: { code?: string } }).cause;
-      if (cause?.code !== 'WS_AUTH_FAILURE_EXHAUSTED') this.scheduleResubscribe();
+      if (!isFatalAuthError(e as Error)) this.scheduleResubscribe();
     }
   }
 
@@ -171,3 +170,12 @@ const fallbackSdkLogger = {
   warn: (m: string) => console.warn(`[wecom-sdk] ${m}`),
   error: (m: string) => console.error(`[wecom-sdk] ${m}`),
 };
+
+/** 认证耗尽是致命错误：直接命中或作为 wrapped cause 出现都算（resubscribe 与 start 共用判定） */
+function isFatalAuthError(err: Error): boolean {
+  if (err instanceof WSAuthFailureError) return true;
+  const code = (err as { code?: string }).code;
+  if (code === 'WS_AUTH_FAILURE_EXHAUSTED') return true;
+  const cause = (err as { cause?: unknown }).cause;
+  return cause instanceof Error && isFatalAuthError(cause);
+}

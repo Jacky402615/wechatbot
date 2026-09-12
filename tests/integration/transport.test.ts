@@ -124,3 +124,23 @@ test('错误事件被记录且不吞（feishubot #62）：SDK error 事件转发
   await t.stop();
   await srv.stop();
 });
+
+test('被踢后凭据失效：认证耗尽不无限重订阅（fatal 识别穿透 cause）', async () => {
+  const srv = new MockWecomServer();
+  const { url } = await srv.start();
+  const t = new WecomSdkTransport({ botId: 'b', secret: 's', wsUrl: url, maxAuthFailureAttempts: 2, ...FAST });
+  const rec = recorder();
+  t.on(rec.push);
+  await t.start();
+  srv.setAuthErrcode(40001);   // 被踢后服务端开始拒绝我们的凭据
+  srv.kick();
+  await waitUntil(() => rec.events.some((e) => e.type === 'kicked'));
+  // 等待重订阅尝试走完认证重试（2 次 × FAST 退避）后停下
+  await new Promise((r) => setTimeout(r, 2_500));
+  const subscribesAfterSettle = srv.subscribeCount;
+  await new Promise((r) => setTimeout(r, 1_500));
+  expect(srv.subscribeCount).toBe(subscribesAfterSettle);   // 没有无限重订阅循环
+  expect(rec.events.some((e) => e.type === 'error')).toBe(true);
+  await t.stop();
+  await srv.stop();
+}, 15_000);

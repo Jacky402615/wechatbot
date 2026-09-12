@@ -13,6 +13,9 @@ export class MockWecomServer {
 
   constructor(private opts: { authErrcode?: number } = {}) {}
 
+  /** 切换认证应答（测试"被踢后凭据失效"场景用） */
+  setAuthErrcode(errcode: number): void { this.opts.authErrcode = errcode; }
+
   async start(): Promise<{ port: number; url: string }> {
     this.wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
     this.wss.on('connection', (ws) => {

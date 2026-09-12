@@ -37,10 +37,12 @@ export function readPidFile(path: string): PidFile | null {
   }
 }
 
-/** pid 存活且（可校验时）启动时间匹配——防 pid 复用误杀/误报 */
+/** pid 存活且启动时间匹配——防 pid 复用误杀/误报。
+ *  记录缺失 startedAt（写 pidfile 时 /proc 不可读）时拒绝认定：宁可让 status 报陈旧、
+ *  让 stop 报"未在运行"，不可对未验证的 pid 发信号。 */
 export function isOurProcess(entry: PidFile): boolean {
   if (!isPidAlive(entry.pid)) return false;
-  if (entry.startedAt === null) return true; // 平台不支持校验，降级为仅存活
+  if (entry.startedAt === null) return false;
   return processStartTime(entry.pid) === entry.startedAt;
 }
 
