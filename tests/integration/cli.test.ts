@@ -154,6 +154,10 @@ test('管理面独立于 config：config 损坏时 status/stop 仍工作；pidfi
   const r = spawnSync('bun', ['src/cli.ts', 'stop', '-r', ws], { timeout: 15_000 });
   expect(r.status).toBe(1);                                     // 拒绝破坏性清理
   expect(existsSync(join(ws, '.bot', 'gateway.pid'))).toBe(true);
+  // 启动面同样拒绝：损坏记录可能是活网关的，不得覆盖
+  const r2 = spawnSync('bun', ['src/cli.ts', 'run', '-r', ws], { timeout: 15_000 });
+  expect(r2.status).toBe(1);
+  expect(r2.stderr.toString()).toMatch(/无法解析/);
 });
 
 async function runCliOut(argv: string[]): Promise<string> {

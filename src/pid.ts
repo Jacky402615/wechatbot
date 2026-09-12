@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { isPidAlive } from './state';
 
 export interface PidFile { pid: number; startedAt: number | null }
@@ -23,23 +23,33 @@ export function processStartTime(pid: number): number | null {
 
 export function writePidFile(path: string, pid: number): PidFile {
   const entry: PidFile = { pid, startedAt: processStartTime(pid) };
-  writeFileSync(path, JSON.stringify(entry));
+  const tmp = `${path}.tmp-${pid}-${Date.now()}`;
+  writeFileSync(tmp, JSON.stringify(entry));
+  renameSync(tmp, path);   // 原子：崩溃不会留下半写的 pidfile
   return entry;
 }
 
-export function readPidFile(path: string): PidFile | null {
-  if (!existsSync(path)) return null;
+export type PidFileRead = { kind: 'missing' } | { kind: 'invalid' } | { kind: 'ok'; entry: PidFile };
+
+/** 启动路径用：区分"无记录"与"记录损坏"——损坏时拒绝启动（可能是活网关的记录） */
+export function readPidFileDetailed(path: string): PidFileRead {
+  if (!existsSync(path)) return { kind: 'missing' };
   try {
     const raw = JSON.parse(readFileSync(path, 'utf8')) as Partial<PidFile>;
-    if (typeof raw.pid !== 'number' || raw.pid <= 0) {
-      process.stderr.write(`[wechatbot] pidfile 内容无效（pid 字段缺失），视为无记录: ${path}\n`);
-      return null;
-    }
-    return { pid: raw.pid, startedAt: typeof raw.startedAt === 'number' ? raw.startedAt : null };
-  } catch (e) {
-    process.stderr.write(`[wechatbot] pidfile 无法解析，视为无记录: ${path}: ${(e as Error).message}\n`);
+    if (typeof raw.pid !== 'number' || raw.pid <= 0) return { kind: 'invalid' };
+    return { kind: 'ok', entry: { pid: raw.pid, startedAt: typeof raw.startedAt === 'number' ? raw.startedAt : null } };
+  } catch {
+    return { kind: 'invalid' };
+  }
+}
+
+export function readPidFile(path: string): PidFile | null {
+  const rd = readPidFileDetailed(path);
+  if (rd.kind === 'invalid') {
+    process.stderr.write(`[wechatbot] pidfile 无法解析，视为无记录: ${path}\n`);
     return null;
   }
+  return rd.kind === 'ok' ? rd.entry : null;
 }
 
 /** pid 存活且启动时间匹配——防 pid 复用误杀/误报。

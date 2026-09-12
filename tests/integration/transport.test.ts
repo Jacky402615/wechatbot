@@ -141,6 +141,8 @@ test('被踢后凭据失效：认证耗尽不无限重订阅（fatal 识别穿�
   await new Promise((r) => setTimeout(r, 1_500));
   expect(srv.subscribeCount).toBe(subscribesAfterSettle);   // 没有无限重订阅循环
   expect(rec.events.some((e) => e.type === 'error')).toBe(true);
+  // 真实 adapter 必须上报 fatal（宿主据此退出进程，而不是空转）
+  expect(rec.events.some((e) => e.type === 'fatal')).toBe(true);
   await t.stop();
   await srv.stop();
 }, 15_000);

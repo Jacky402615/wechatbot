@@ -3,16 +3,21 @@ import { join } from 'node:path';
 import { createGateway, type Gateway } from '../gateway';
 import { EnvError } from '../env';
 import { ConfigError } from '../config';
-import { writePidFile, readPidFile, isOurProcess } from '../pid';
+import { writePidFile, readPidFile, readPidFileDetailed, isOurProcess } from '../pid';
 
 export async function run(opts: { workspace: string }): Promise<number> {
   const botDir = join(opts.workspace, '.bot');
   const pidPath = join(botDir, 'gateway.pid');
-  // 单网关契约：已有存活且经验证的网关（前台或守护）时拒绝启动，避免互踢/自愈循环。
+  // 单网关契约：记录损坏时拒绝启动（可能是活网关的记录，覆盖会造出竞争连接）；
+  // 已有存活且经验证的网关（前台或守护）时拒绝启动，避免互踢/自愈循环。
   // 例外：pidfile 记的是本进程（start 先写 pidfile 再拉起本 run）——那是我们自己。
-  const existing = readPidFile(pidPath);
-  if (existing !== null && existing.pid !== process.pid && isOurProcess(existing)) {
-    process.stderr.write(`已有网关在运行 (pid ${existing.pid})；如需重启先 wechatbot stop\n`);
+  const rd = readPidFileDetailed(pidPath);
+  if (rd.kind === 'invalid') {
+    process.stderr.write(`[wechatbot] pidfile 无法解析，拒绝启动（人工确认后删除）: ${pidPath}\n`);
+    return 1;
+  }
+  if (rd.kind === 'ok' && rd.entry.pid !== process.pid && isOurProcess(rd.entry)) {
+    process.stderr.write(`已有网关在运行 (pid ${rd.entry.pid})；如需重启先 wechatbot stop\n`);
     return 1;
   }
   let gateway: Gateway;
@@ -52,10 +57,14 @@ export async function run(opts: { workspace: string }): Promise<number> {
   // 自愈期致命错误（如被踢后凭据失效）：停机并响亮退出，不空转
   gateway.onFatal((err) => {
     process.stderr.write(`[wechatbot] 致命错误，网关退出: ${err.message}\n`);
-    void gateway.stop().finally(() => {
-      cleanupPidFile();
-      process.exit(1);
-    });
+    gateway.stop()
+      .catch((e: unknown) => {
+        process.stderr.write(`[wechatbot] 致命错误后的停机也失败了: ${(e as Error).message}\n`);
+      })
+      .finally(() => {
+        cleanupPidFile();
+        process.exit(1);
+      });
   });
   try {
     await gateway.start();
