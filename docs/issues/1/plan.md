@@ -1113,7 +1113,7 @@ function refFromFrame(frame: WsFrame): ReplyRef {
 - Consumes: Task 7 全部产物；Task 4 `BotLogger`；Task 5 `writeState/GatewayState/StateError`；Task 3 `Workspace`；Task 2 `assertCredentials/EnvError`。
 - Produces: `class EchoHandler { constructor(transport: WeComTransport, logger: BotLogger); register(): void }`（只处理 `chatType==='single'` 文本，echo 原文，`finish=true` 单帧，streamId 用 `randomUUID()`；群聊 debug 日志忽略）；`class Gateway { constructor(opts: { transport: WeComTransport; logger: BotLogger; botDir: string; pid?: number }); start(): Promise<void>; stop(): Promise<void>; isConnected(): boolean }`（`pid` 缺省 `process.pid`；`isConnected()` 透传 transport——soak 采样用；**EchoHandler 在 `transport.start()` 之前注册**，消除"认证完成与 handler 注册之间消息丢失"竞态；事件→state.json 原子更新：connected/authenticated/disconnected/reconnecting/kicked/error 计数与 lastError；SIGTERM 优雅关闭由调用方注册）；`createGateway(workspace: string, overrides?: Partial<TransportOptions>): Promise<{ gateway: Gateway; workspace: Workspace }>`（组装根：loadWorkspace → BotLogger → `assertCredentials`（空凭据在此抛 `EnvError`，早于 transport 构造）→ WecomSdkTransport，`WECOM_WS_URL` 环境变量可覆盖 wsUrl——测试与高级部署用，信任边界见 decisions.md D12）。
 
-- [ ] **Step 1: 写失败测试 `tests/integration/echo.test.ts`**
+- [x] **Step 1: 写失败测试 `tests/integration/echo.test.ts`**
 
 ```ts
 import { test, expect } from 'bun:test';
@@ -1209,8 +1209,8 @@ test('空凭据：createGateway 在 transport 构造前抛 EnvError', async () =
 });
 ```
 
-- [ ] **Step 2: 验证 FAIL** — Run: `bun test tests/integration/echo.test.ts` Expected: FAIL — gateway 模块不存在。
-- [ ] **Step 3: 写 `src/handlers/echo.ts`**
+- [x] **Step 2: 验证 FAIL** — Run: `bun test tests/integration/echo.test.ts` Expected: FAIL — gateway 模块不存在。
+- [x] **Step 3: 写 `src/handlers/echo.ts`**
 
 ```ts
 import { randomUUID } from 'node:crypto';
@@ -1371,8 +1371,8 @@ export async function createGateway(
 
 （文件底部的 `type TransportEventLike = Parameters<Parameters<WeComTransport['on']>[0]>[0]` 供 `onEvent` 签名使用。）
 
-- [ ] **Step 4: 验证 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration` Expected: 全绿（echo 4 项：AC4 单帧、state 可观测、被踢闭环、空凭据——4 个测试在 Step 1 一次写齐，提交门槛不拆批次）。竞态说明：EchoHandler 在 `transport.start()` 前注册（见 Step 3 代码注释），"authenticated 后、注册前"的丢消息窗口被结构性消除——echo 测试在 `gateway.start()` 返回后立即推消息即可覆盖正常路径。
-- [ ] **Step 5: Commit** — `git add src/handlers src/gateway.ts tests/integration/echo.test.ts && git commit -m "feat(gateway): echo handler closing AC4 loop with state observability"`
+- [x] **Step 4: 验证 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration` Expected: 全绿（echo 4 项：AC4 单帧、state 可观测、被踢闭环、空凭据——4 个测试在 Step 1 一次写齐，提交门槛不拆批次）。竞态说明：EchoHandler 在 `transport.start()` 前注册（见 Step 3 代码注释），"authenticated 后、注册前"的丢消息窗口被结构性消除——echo 测试在 `gateway.start()` 返回后立即推消息即可覆盖正常路径。
+- [x] **Step 5: Commit** — `git add src/handlers src/gateway.ts tests/integration/echo.test.ts && git commit -m "feat(gateway): echo handler closing AC4 loop with state observability"`
 
 **Checkpoint B（Task 8 后）** — Run: `bun run typecheck && bun test tests/unit tests/integration`
 Expected: 全绿。若 transport 测试暴露 SDK 真实行为与假设差异，此时回改 Task 7 并把结论写进 Task 10 的 SPEC 草稿。
