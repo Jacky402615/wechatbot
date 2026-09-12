@@ -95,7 +95,9 @@ export class AgentHandler {
         this.opts.onReplyError?.(e as Error);
         try {
           if (event.message.chatType !== 'group' || event.message.chatId) {
-            void this.notice(event.message.replyTo, chatKeyOf(event.message), '⚠️ 处理失败，请稍后重试。')
+            // pr-review R2-P3：源头兜底走**关键终帧**路径（有界等待 + 强制发送 + 记账），
+            // 不得用可丢弃的 notice——失败面承诺是「用户必有回声」
+            void this.criticalFinal(event.message.replyTo, chatKeyOf(event.message), '⚠️ 处理失败，请稍后重试。')
               .catch(() => { /* 兜底帧失败已由 rawSend 留痕 */ });
           }
         } catch { /* chatKeyOf 异常（理论不可达）——不再递归兜底 */ }
@@ -218,6 +220,24 @@ export class AgentHandler {
     st.lastFrameAt = now;
     st.sendChain = st.sendChain.then(() => this.rawSend(st!, truncateUtf8(st!.banner + st!.acc, this.opts.maxContentBytes ?? MAX_CONTENT_BYTES), false));
     await st.sendChain;
+  }
+
+  /** 关键兜底终帧（pr-review R2-P3）：一次性流，不触碰 this.streams；
+   *  与终帧同款限流语义——有界等待预算，到顶强制发送 + record 记账 + ERROR 告警（绝不丢弃）。
+   *  键用已知 chatKey（ephemeral 流不在 streams 表内，send 的反查会退化成 reqId）。 */
+  private async criticalFinal(ref: ReplyRef, chatKey: string, content: string): Promise<void> {
+    const interval = this.opts.finalWaitIntervalMs ?? FINAL_WAIT_INTERVAL_MS;
+    const maxTries = this.opts.finalWaitMaxTries ?? FINAL_WAIT_MAX_TRIES;
+    let acquired = false;
+    for (let i = 0; i < maxTries && !(acquired = this.limiter.tryAcquire(chatKey)); i++) {
+      await new Promise((r) => setTimeout(r, interval));
+    }
+    if (!acquired) {
+      this.limiter.record(chatKey);
+      this.deps.logger.error('critical fallback sent over conversation rate limit (bounded escape)', { chatKey });
+    }
+    const st: TurnStream = { ref, streamId: randomUUID(), banner: '', acc: '', lastFrameAt: 0, closed: false, sendChain: Promise.resolve() };
+    await this.rawSend(st, content, true);
   }
 
   /** 通知帧（队列满/无效选项提示）：一次性流，**不触碰 this.streams**（plan 评审 R2-F4：

@@ -167,6 +167,23 @@ export class AgentManager {
     return true;
   }
 
+  /** 管道已死的回合 abort（pr-review R2-P2）：SIGINT + 槽位保留到收割完成——
+   *  runTurn 的 EOF 失败路径是唯一终态出口（不在此发事件，避免重复终态）。 */
+  private abortDyingTurn(chatKey: string, proc: ChildProcess): void {
+    const turn = this.busy.get(chatKey);
+    if (turn?.proc === proc) {
+      if (turn.deadline) clearTimeout(turn.deadline);
+      if (turn.askDeadline) clearTimeout(turn.askDeadline);
+      turn.terminating = true;
+    }
+    try { proc.kill('SIGINT'); } catch { /* 已退 */ }
+    void terminateChild(proc, this.opts.reapEofMs, this.opts.reapTermMs)
+      .then(() => {
+        if (this.busy.get(chatKey)?.proc === proc) this.busy.delete(chatKey);
+        this.scheduleAfterRelease(chatKey);
+      });
+  }
+
   /** ask 等待回合的过期击杀：哨兵标记 + 槽位保留到收割完成（紧随的新 submit 排队，不并行 spawn）。
    *  runTurn 的 EOF 失败路径见哨兵即发 ask_expired（不发 turn_failed——code-review C2）。 */
   private killAskTurn(chatKey: string, proc: ChildProcess, reason: string): void {
@@ -229,13 +246,22 @@ export class AgentManager {
       this.deps.logger.warn('group answerer at per-user in-flight cap — answer deferred', { chatKey, answeringUserId });
       return 'answerer-busy';
     }
+    // 帽位预约（pr-review R2-P1）：await 写回调的窗口内并发的 submit 不得再吃到同一帽位——
+    // 先占位，写失败再回滚（原子性以同步占位保证，JS 单线程下无交错）。
+    let reserved = false;
+    if (turn?.proc === entry.proc && answeringUserId && !turn.initiators.includes(answeringUserId)) {
+      turn.initiators.push(answeringUserId);
+      reserved = true;
+    }
     const wrote = await writeLine(entry.proc, {
       type: 'control_response',
       response: { subtype: 'success', request_id: entry.requestId, response: { behavior: 'allow', updatedInput: { ...entry.input, answers } } },
     });
     if (!wrote) {
-      this.deps.logger.warn('control_response write failed (child dying)', { chatKey });
-      this.pendingAsks.delete(chatKey); // 写失败才清——此前保持 pending 可重试（code-review R2-C4）
+      if (reserved && turn?.initiators.includes(answeringUserId!)) turn.initiators = turn.initiators.filter((u) => u !== answeringUserId); // 回滚预约
+      this.deps.logger.warn('control_response write failed (child dying) — aborting turn', { chatKey });
+      this.pendingAsks.delete(chatKey);
+      this.abortDyingTurn(chatKey, entry.proc); // pr-review R2-P2：管道死 ⇒ 杀+收割，EOF 路径发唯一 turn_failed
       return 'none';
     }
     this.pendingAsks.delete(chatKey);
@@ -245,14 +271,9 @@ export class AgentManager {
       // 活动时间是遥测面：写失败留痕，不影响作答已成立的事实
       this.deps.logger.warn('session activity persist failed (answer kept)', { chatKey, err: (e as Error).message });
     }
-    if (turn?.proc === entry.proc) {
-      if (answeringUserId && !turn.initiators.includes(answeringUserId)) {
-        turn.initiators.push(answeringUserId); // 群内作答者计入帽（R3-F2）——能走到这里必在帽内（上方已拒收帽满者）
-      }
-      if (turn.askDeadline) {
-        clearTimeout(turn.askDeadline);
-        turn.askDeadline = null;
-      }
+    if (turn?.proc === entry.proc && turn.askDeadline) {
+      clearTimeout(turn.askDeadline);
+      turn.askDeadline = null;
     }
     // 答复后重开整段流预算：ask 已闭旧流，后续输出走新流（D7——deadline 按「流段」计）
     this.armDeadline(chatKey, entry.proc);
@@ -367,10 +388,13 @@ export class AgentManager {
     this.busy.set(chatKey, { proc, initiators: [...new Set(userIds)], deadline: null, askDeadline: null, terminating: false });
     this.armDeadline(chatKey, proc);
     this.deps.logger.info('turn starting', { chatKey, resume: resumeId ?? '(fresh)', pid: proc.pid });
-    // code-review C5/R2-C3：stdin 异步错误（EPIPE）哨兵化——后续写拒收、留痕不冒 unhandled
+    // code-review C5/R2-C3 + pr-review R2-P2：stdin 异步错误（EPIPE）——哨兵化拒后续写，
+    // 且进程已不可对话 ⇒ 主动杀掉（EOF 路径发唯一 turn_failed、释放槽位，不挂到超时）
     proc.stdin?.on('error', (e: Error) => {
+      if (stdinFailedProcs.has(proc)) return;
       stdinFailedProcs.add(proc);
-      this.deps.logger.warn('claude stdin failed (writes will be rejected)', { chatKey, err: e.message });
+      this.deps.logger.warn('claude stdin failed — aborting turn', { chatKey, err: e.message });
+      this.abortDyingTurn(chatKey, proc);
     });
 
     let stderrBuf = '';
@@ -407,6 +431,11 @@ export class AgentManager {
             const questions = extractAskUserQuestions(c.input ?? {});
             this.pendingAsks.set(chatKey, { requestId: c.requestId, input: c.input ?? {}, questions, proc });
             this.clearDeadline(chatKey, proc); // ask 等待不吃流预算（流已闭；答复时重臂新流预算）
+            try {
+              this.deps.sessions.updateActivity(chatKey); // ask 到达即活动（pr-review R2-P4：TTL 计时与惰性过期同源对齐）
+            } catch (e) {
+              this.deps.logger.warn('session activity persist failed (ask armed full ttl anyway)', { chatKey, err: (e as Error).message });
+            }
             this.armAskTtl(chatKey, proc);     // 无人作答也要释放槽位（code-review C3）
             await onEvent({ type: 'ask', chatKey, questions }); // 闭流帧发完才继续读（背压，F9）
           } else {
@@ -414,7 +443,10 @@ export class AgentManager {
               type: 'control_response',
               response: { subtype: 'success', request_id: c.requestId, response: { behavior: 'allow', updatedInput: c.input ?? {} } },
             }).then((ok) => {
-              if (!ok) this.deps.logger.warn('control_response write failed (child dying)', { chatKey });
+              if (!ok) {
+                this.deps.logger.warn('control_response write failed (child dying) — aborting turn', { chatKey });
+                this.abortDyingTurn(chatKey, proc); // pr-review R2-P2
+              }
             });
           }
           continue;

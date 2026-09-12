@@ -304,3 +304,25 @@ test('ask_expired 只认领处女续流：入站过期路径挂了 banner 的流
   expect(final.content).toContain('上一个问题已超时失效'); // banner 保留
   expect(final.content).toContain('新回合输出');
 });
+
+test('关键兜底不受限流丢弃：预算耗尽时入站失败仍发「处理失败」终帧并记账（pr-review R2-P3）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'wb-hdl-'));
+  mkdirSync(join(dir, 'logs'), { recursive: true });
+  const transport = new FakeTransport();
+  const logger = new BotLogger({ level: 'debug', logDir: join(dir, 'logs'), console: false });
+  const recorded: string[] = [];
+  const exhausted = { tryAcquire: (_k: string) => false, record: (k: string) => recorded.push(k) };
+  const mgr = new FakeManager();
+  mgr.expireStaleAsk = () => { throw new Error('EACCES: session read failed'); };
+  const handler = new AgentHandler(
+    { transport, logger, manager: mgr, workspace: dir },
+    { rateLimiter: exhausted as unknown as ConversationRateLimiter, finalWaitIntervalMs: 5, finalWaitMaxTries: 3 },
+  );
+  handler.register();
+  transport.emit(MSG());
+  await flush(100);
+  expect(transport.sent.length).toBe(1); // 兜底终帧仍发出（关键路径不丢弃）
+  expect(transport.sent[0]!.finish).toBe(true);
+  expect(transport.sent[0]!.content).toMatch(/处理失败/);
+  expect(recorded).toEqual(['single:u1']); // 逃逸记账在案
+});

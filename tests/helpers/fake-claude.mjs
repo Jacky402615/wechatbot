@@ -121,7 +121,10 @@ switch (SCENARIO) {
     break;
   }
   case 'ignore-signals': {
-    // 超时护栏的对抗样本：忽略 SIGINT/SIGTERM——验证收割梯子升级到 SIGKILL
+    // 超时护栏的对抗样本：真正忽略 SIGINT/SIGTERM——验证收割梯子升级到 SIGKILL
+    // （先摘掉前导的信号记录监听，否则 exit(130) 会短路“忽略”）
+    process.removeAllListeners('SIGINT');
+    process.removeAllListeners('SIGTERM');
     process.on('SIGINT', () => process.stderr.write('ignored SIGINT\n'));
     process.on('SIGTERM', () => process.stderr.write('ignored SIGTERM\n'));
     emitInit();
