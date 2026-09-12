@@ -14,7 +14,7 @@ const FINAL_WAIT_MAX_TRIES = 25;        // ≤25s < 平台 10min 的 30s 安全�
 
 export interface AgentManagerPort {
   submit(chatKey: string, chatType: 'single' | 'group', userId: string, prompt: string, onEvent: AgentEventHandler): string;
-  answerPendingAsk(chatKey: string, text: string, answeringUserId?: string): 'answered' | 'invalid_numeric' | 'none';
+  answerPendingAsk(chatKey: string, text: string, answeringUserId?: string): Promise<'answered' | 'invalid_numeric' | 'none' | 'answerer-busy'>;
   hasPendingAsk(chatKey: string): boolean;
   expireStaleAsk(chatKey: string): boolean;
   closeAll(): Promise<void>;
@@ -88,10 +88,17 @@ export class AgentHandler {
   register(): void {
     this.deps.transport.on((event) => {
       if (event.type !== 'textMessage') return;
-      // code-review C4：入站处理的意外失败必须可见（日志 + lastError），不冒 unhandled
+      // code-review C4：入站处理的意外失败必须可见（日志 + lastError），不冒 unhandled。
+      // pr-review P3：源头用户不得无回声——兜底一次性「处理失败」终帧（预算耗尽即丢）。
       this.onText(event.message).catch((e: unknown) => {
         this.deps.logger.error('inbound handling failed', { msgid: event.message.msgid, err: (e as Error).message });
         this.opts.onReplyError?.(e as Error);
+        try {
+          if (event.message.chatType !== 'group' || event.message.chatId) {
+            void this.notice(event.message.replyTo, chatKeyOf(event.message), '⚠️ 处理失败，请稍后重试。')
+              .catch(() => { /* 兜底帧失败已由 rawSend 留痕 */ });
+          }
+        } catch { /* chatKeyOf 异常（理论不可达）——不再递归兜底 */ }
       });
     });
   }
@@ -113,7 +120,7 @@ export class AgentHandler {
       st.banner = `${st.banner}⚠️ 上一个问题已超时失效，已开启新会话\n\n`;
       st.ref = m.replyTo; // 过期后的新回合绑最新回调（F5）
     } else if (this.deps.manager.hasPendingAsk(chatKey)) {
-      const r = this.deps.manager.answerPendingAsk(chatKey, m.content, m.userId);
+      const r = await this.deps.manager.answerPendingAsk(chatKey, m.content, m.userId);
       if (r === 'answered') {
         const st = this.streams.get(chatKey);
         if (st && !st.closed) st.ref = m.replyTo; // 答复后的续输出绑作答回调（F5）
@@ -122,6 +129,11 @@ export class AgentHandler {
       if (r === 'invalid_numeric') {
         await this.notice(m.replyTo, chatKey, '无效选项，请回复数字（如 1 或 1,3），或直接回复文字。');
         return; // ask 续流（this.streams 中的 pending 续流）不受影响（R2-F4）
+      }
+      if (r === 'answerer-busy') {
+        // pr-review P1：作答者已达每用户帽——拒收并提示稍后重试（ask 保持 pending）
+        await this.notice(m.replyTo, chatKey, '你当前进行中的会话已达上限（3），请稍后再回复选项作答。');
+        return;
       }
       // 'none'：pending 已死——按新消息继续
     }

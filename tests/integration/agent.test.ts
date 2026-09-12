@@ -126,13 +126,23 @@ test('AC4 多选端到端：ask-multi 渲染 4 选项，回复 1,3 映射回 con
   await gateway.stop(); await srv.stop();
 });
 
-test('AC5：无输出超时回合干净收流（压缩 turnTimeoutMs）', async () => {
-  const { srv, gateway } = await setup('no-output', { turnTimeoutMs: 400 });
+test('AC5：无输出超时回合干净收流（压缩 turnTimeoutMs），子进程确已终止', async () => {
+  const { srv, gateway, stateDir } = await setup('no-output', { turnTimeoutMs: 400 });
   srv.pushTextMessage('req-1', { msgid: 'm1', userId: 'u1', content: '慢' });
   await waitUntil(() => streamsOf(srv).some((s) => s.finish), 10_000);
   const f = streamsOf(srv).at(-1)!;
   expect(f.finish).toBe(true);
   expect(f.content).toContain('⏱ 回合超时');
+  // pr-review P5：终止证据——超时杀掉的儿子进程已死（kill(pid,0) 抛 ESRCH）
+  const argvs = readFileSync(join(stateDir, 'argv.jsonl'), 'utf8').trim().split('\n')
+    .map((l) => JSON.parse(l) as { pid: number });
+  const t0 = Date.now();
+  let alive = argvs.map((a) => a.pid);
+  while (alive.length > 0 && Date.now() - t0 < 3_000) {
+    alive = alive.filter((pid) => { try { process.kill(pid, 0); return true; } catch { return false; } });
+    if (alive.length > 0) await new Promise((r) => setTimeout(r, 100));
+  }
+  expect(alive).toEqual([]);
   await gateway.stop(); await srv.stop();
 });
 

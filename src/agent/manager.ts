@@ -114,17 +114,21 @@ function terminateChild(proc: ChildProcess, eofMs: number, termMs: number): Prom
   return termination;
 }
 
-/** stdin 单点写入（code-review C5）：try/catch 同步失败；异步 EPIPE 由 spawn 时挂的一次性
- *  error 监听兜底（不冒泡为 unhandled）。返回 false = 写失败（管道已死），调用方各自降级。 */
-function writeLine(proc: ChildProcess, obj: unknown): boolean {
-  const stdin = proc.stdin;
-  if (!stdin || !stdin.writable || stdinFailedProcs.has(proc)) return false;
-  try {
-    stdin.write(JSON.stringify(obj) + '\n');
-    return true;
-  } catch {
-    return false;
-  }
+/** stdin 单点写入（code-review C5 + pr-review P2）：**写完成回调确认**——异步 EPIPE 也
+ *  在 Promise 里兑现为 false（不再乐观返回 true）；spawn 时挂的 error 监听做哨兵兜底。 */
+function writeLine(proc: ChildProcess, obj: unknown): Promise<boolean> {
+  return new Promise((resolve) => {
+    const stdin = proc.stdin;
+    if (!stdin || !stdin.writable || stdinFailedProcs.has(proc)) {
+      resolve(false);
+      return;
+    }
+    try {
+      stdin.write(JSON.stringify(obj) + '\n', (err) => resolve(!err));
+    } catch {
+      resolve(false);
+    }
+  });
 }
 
 export class AgentManager {
@@ -201,9 +205,10 @@ export class AgentManager {
     return 'started';
   }
 
-  /** 数字/自由文本作答：写 control_response 回仍在运行的进程。
-   *  作答者（群内可为非发起人——D2）计入本回合 initiators（R3-F2：并发帽不可漏计影响者）。 */
-  answerPendingAsk(chatKey: string, text: string, answeringUserId?: string): 'answered' | 'invalid_numeric' | 'none' {
+  /** 数字/自由文本作答：写 control_response 回仍在运行的进程（写完成回调确认——P2）。
+   *  作答者（群内可为非发起人——D2）计入本回合 initiators（R3-F2）；已达每用户帽的作答者
+   *  被拒收（'answerer-busy'——pr-review P1：平台 ≤3 in-flight 必须执行，非仅记账跳过）。 */
+  async answerPendingAsk(chatKey: string, text: string, answeringUserId?: string): Promise<'answered' | 'invalid_numeric' | 'none' | 'answerer-busy'> {
     const entry = this.pendingAsks.get(chatKey);
     if (!entry) return 'none';
     const parsed = parseNumericReply(text, entry.questions);
@@ -217,7 +222,14 @@ export class AgentManager {
       this.pendingAsks.delete(chatKey);
       return 'none';
     }
-    const wrote = writeLine(entry.proc, {
+    // 平台帽执行（pr-review P1）：非本回合发起人且已达帽 ⇒ 拒收作答（pending 保持，稍后可重试）
+    const turn = this.busy.get(chatKey);
+    const isInitiator = turn?.proc === entry.proc && answeringUserId !== undefined && turn.initiators.includes(answeringUserId);
+    if (answeringUserId !== undefined && !isInitiator && this.userInFlight(answeringUserId) >= this.opts.perUserInFlight) {
+      this.deps.logger.warn('group answerer at per-user in-flight cap — answer deferred', { chatKey, answeringUserId });
+      return 'answerer-busy';
+    }
+    const wrote = await writeLine(entry.proc, {
       type: 'control_response',
       response: { subtype: 'success', request_id: entry.requestId, response: { behavior: 'allow', updatedInput: { ...entry.input, answers } } },
     });
@@ -233,17 +245,14 @@ export class AgentManager {
       // 活动时间是遥测面：写失败留痕，不影响作答已成立的事实
       this.deps.logger.warn('session activity persist failed (answer kept)', { chatKey, err: (e as Error).message });
     }
-    const turn = this.busy.get(chatKey);
-    if (turn?.proc === entry.proc && answeringUserId && !turn.initiators.includes(answeringUserId)) {
-      if (this.userInFlight(answeringUserId) < this.opts.perUserInFlight) {
-        turn.initiators.push(answeringUserId); // 群内作答者计入帽（R3-F2）——已达帽则不追加（R2-C2：作答照常，归因不破平台界）
-      } else {
-        this.deps.logger.warn('group answerer at per-user in-flight cap — attribution skipped', { chatKey, answeringUserId });
+    if (turn?.proc === entry.proc) {
+      if (answeringUserId && !turn.initiators.includes(answeringUserId)) {
+        turn.initiators.push(answeringUserId); // 群内作答者计入帽（R3-F2）——能走到这里必在帽内（上方已拒收帽满者）
       }
-    }
-    if (turn?.proc === entry.proc && turn.askDeadline) {
-      clearTimeout(turn.askDeadline);
-      turn.askDeadline = null;
+      if (turn.askDeadline) {
+        clearTimeout(turn.askDeadline);
+        turn.askDeadline = null;
+      }
     }
     // 答复后重开整段流预算：ask 已闭旧流，后续输出走新流（D7——deadline 按「流段」计）
     this.armDeadline(chatKey, entry.proc);
@@ -370,8 +379,9 @@ export class AgentManager {
     proc.on('error', (err: Error & { code?: string }) => { spawnError = err.message; });
     let turnFinished = false;
 
-    if (!writeLine(proc, { type: 'user', message: { role: 'user', content: prompt } })) {
-      this.deps.logger.warn('stdin write failed at turn start', { chatKey });
+    if (!(await writeLine(proc, { type: 'user', message: { role: 'user', content: prompt } }))) {
+      // pr-review P2：首条 prompt 写不进（管道死）⇒ 回合无法成立——终止并报失败，不等到超时
+      throw new Error('claude stdin write failed at turn start (child pipe dead)');
     }
 
     const rl = createInterface({ input: proc.stdout!, crlfDelay: Infinity, terminal: false });
@@ -400,12 +410,12 @@ export class AgentManager {
             this.armAskTtl(chatKey, proc);     // 无人作答也要释放槽位（code-review C3）
             await onEvent({ type: 'ask', chatKey, questions }); // 闭流帧发完才继续读（背压，F9）
           } else {
-            if (!writeLine(proc, {
+            void writeLine(proc, {
               type: 'control_response',
               response: { subtype: 'success', request_id: c.requestId, response: { behavior: 'allow', updatedInput: c.input ?? {} } },
-            })) {
-              this.deps.logger.warn('control_response write failed (child dying)', { chatKey });
-            }
+            }).then((ok) => {
+              if (!ok) this.deps.logger.warn('control_response write failed (child dying)', { chatKey });
+            });
           }
           continue;
         }
@@ -433,11 +443,13 @@ export class AgentManager {
           const resultText = typeof event.result === 'string' ? event.result : '';
           if (isError && resumeId && (errors.some((s) => s.includes('No conversation found')) || resultText.includes('No conversation found'))) {
             turnFinished = true; // 本代以提示收场，紧跟 fresh 重试
+            hooks.markFinished(); // pr-review P4：终态前标记——消费方回调抛错不得触发重复终态
             resumeNotFoundProcs.add(proc);
             await onEvent({ type: 'text_delta', chatKey, text: '⚠️ 会话恢复失败，正在重新开始对话…\n\n' });
             break;
           }
           turnFinished = true;
+          hooks.markFinished(); // pr-review P4
           if (isError) {
             await onEvent({ type: 'turn_failed', chatKey, error: errors.join('; ') || resultText || `claude result error (${String(event.subtype)})` });
           } else {
@@ -448,6 +460,7 @@ export class AgentManager {
         }
         if (event.type === 'error') {
           turnFinished = true;
+          hooks.markFinished(); // pr-review P4
           await onEvent({ type: 'turn_failed', chatKey, error: String(event.error ?? 'unknown stream error') });
           break;
         }
@@ -469,6 +482,7 @@ export class AgentManager {
     // 失败面（plan 评审 F3）：EOF 无终态 ⇒ 必报 turn_failed（exit 0 也不留孤儿流）；
     // 超时哨兵优先；spawn 失败（ENOENT）单独可识别。
     if (!turnFinished) {
+      hooks.markFinished(); // pr-review P4：EOF 失败路径也是终态——回调抛错不得触发重复终态
       if (expiredAskProcs.has(proc)) {
         // ask 过期击杀（code-review C2）：不发通用失败——过期语义由 ask_expired 承载
         await onEvent({ type: 'ask_expired', chatKey });

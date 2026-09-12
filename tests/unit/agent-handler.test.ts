@@ -23,7 +23,7 @@ class FakeTransport implements WeComTransport {
 class FakeManager {
   submitted: Array<{ chatKey: string; prompt: string }> = [];
   answers: string[] = [];
-  answerResult: 'answered' | 'invalid_numeric' | 'none' = 'answered';
+  answerResult: 'answered' | 'invalid_numeric' | 'none' | 'answerer-busy' = 'answered';
   submitResult: 'started' | 'queued' | 'queue-full' | 'shutdown' = 'started';
   pendingFlag = false;
   expireResult = false;
@@ -34,7 +34,7 @@ class FakeManager {
     if (gen) queueMicrotask(() => gen(onEvent));
     return this.submitResult;
   }
-  answerPendingAsk(_k: string, text: string, _uid?: string) { this.answers.push(text); return this.answerResult; }
+  async answerPendingAsk(_k: string, text: string, _uid?: string): Promise<'answered' | 'invalid_numeric' | 'none' | 'answerer-busy'> { this.answers.push(text); return this.answerResult; }
   hasPendingAsk() { return this.pendingFlag; }
   expireStaleAsk() { return this.expireResult; }
   async closeAll() {}
@@ -249,6 +249,32 @@ test('ask 字节保底（code-review C6）：超长已产出文本不截掉编�
   expect(askFrame.content).toContain('3. 丙');
   expect(askFrame.content).toContain('4. 丁');        // 编号清单完整——未被前置输出挤出预算
   expect(askFrame.content.indexOf('…[截断]')).toBeLessThan(askFrame.content.indexOf('❓ 第一题？')); // 截断标记只落在前置文本
+});
+
+test('answerer-busy：作答者达帽的通知流（pr-review P1 桥面）', async () => {
+  const { handler, transport, manager } = makeHandler();
+  handler.register();
+  manager.pendingFlag = true;
+  manager.answerResult = 'answerer-busy';
+  transport.emit(MSG({ content: '1' }));
+  await flush();
+  expect(transport.sent.length).toBe(1);
+  expect(transport.sent[0]!.finish).toBe(true);
+  expect(transport.sent[0]!.content).toMatch(/上限/);
+  expect(manager.answers.at(-1)).toBe('1'); // 已转发 manager（由其拒收）
+});
+
+test('入站前置失败兜底终帧：expireStaleAsk 抛错 ⇒ 用户收到「处理失败」finish=true（pr-review P3）', async () => {
+  const errs: Error[] = [];
+  const { handler, transport, manager } = makeHandler(new FakeManager(), { onReplyError: (e) => errs.push(e) });
+  manager.expireStaleAsk = () => { throw new Error('EACCES: session read failed'); };
+  handler.register();
+  transport.emit(MSG());
+  await flush();
+  expect(transport.sent.length).toBe(1); // 兜底一次性终帧
+  expect(transport.sent[0]!.finish).toBe(true);
+  expect(transport.sent[0]!.content).toMatch(/处理失败/);
+  expect(/EACCES/.test(errs[0]!.message)).toBe(true); // lastError 同步上抛
 });
 
 test('ask_expired 只认领处女续流：入站过期路径挂了 banner 的流不被旧代事件误删（R2-C1）', async () => {

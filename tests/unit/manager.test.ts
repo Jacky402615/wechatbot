@@ -29,6 +29,17 @@ const flush = (ms = 400) => new Promise((r) => setTimeout(r, ms));
 const argvLog = (stateDir: string) =>
   readFileSync(join(stateDir, 'argv.jsonl'), 'utf8').trim().split('\n')
     .map((l) => JSON.parse(l) as { argv: string[]; resumeId: string | null; cwd: string; hasClaudecode: boolean; pid: number; ts: number });
+/** pr-review P5：子进程终止证据——kill(pid,0) 抛 ESRCH 即已死（SIGKILL 路径 exit.jsonl 不可靠） */
+async function assertPidsDead(stateDir: string, pids: number[], ms = 3_000): Promise<void> {
+  const t0 = Date.now();
+  let alive = pids;
+  while (alive.length > 0 && Date.now() - t0 < ms) {
+    alive = alive.filter((pid) => { try { process.kill(pid, 0); return true; } catch { return false; } });
+    if (alive.length > 0) await new Promise((r) => setTimeout(r, 100));
+  }
+  expect(alive).toEqual([]);
+}
+
 const stdinLog = (stateDir: string) =>
   existsSync(join(stateDir, 'stdin.jsonl'))
     ? readFileSync(join(stateDir, 'stdin.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as { type: string; message?: { content: string }; response?: unknown })
@@ -93,7 +104,7 @@ test('ask：control_request 注册 pending；数字作答写回 control_response
   await flush();
   expect(manager.hasPendingAsk('single:u1')).toBe(true);
   expect(events.some((e) => e.type === 'ask')).toBe(true);
-  expect(manager.answerPendingAsk('single:u1', '2')).toBe('answered');
+  expect(await manager.answerPendingAsk('single:u1', '2')).toBe('answered');
   await flush();
   const responses = stdinLog(stateDir).filter((l) => l.type === 'control_response') as Array<{ response: { request_id: string; response: { behavior: string; updatedInput: { answers: Record<string, string> } } } }>;
   expect(responses.length).toBe(1);
@@ -109,7 +120,7 @@ test('ask：多选 1,3 跨题分配；非数字 ⇒ 首题自由文本；越界 
   const { stateDir, manager } = makeManager('ask-multi');
   manager.submit('single:u1', 'single', 'u1', '开始', () => {});
   await flush();
-  expect(manager.answerPendingAsk('single:u1', '1,3')).toBe('answered');
+  expect(await manager.answerPendingAsk('single:u1', '1,3')).toBe('answered');
   await flush();
   const responses = stdinLog(stateDir).filter((l) => l.type === 'control_response') as Array<{ response: { response: { updatedInput: { answers: Record<string, string> } } } }>;
   expect(responses[0]!.response.response.updatedInput.answers).toEqual({ '用哪个库？': 'bun', '要不要日志？': '要' });
@@ -118,7 +129,7 @@ test('ask：多选 1,3 跨题分配；非数字 ⇒ 首题自由文本；越界 
   const m2 = makeManager('ask-multi');
   m2.manager.submit('single:u2', 'single', 'u2', '开始', () => {});
   await flush();
-  expect(m2.manager.answerPendingAsk('single:u2', '直接用 bun')).toBe('answered');
+  expect(await m2.manager.answerPendingAsk('single:u2', '直接用 bun')).toBe('answered');
   await flush(); // fake 读取并落记 control_response 需要一个节拍
   const free = stdinLog(m2.stateDir).filter((l) => l.type === 'control_response') as Array<{ response: { response: { updatedInput: { answers: Record<string, string> } } } }>;
   expect(free[0]!.response.response.updatedInput.answers).toEqual({ '用哪个库？': '直接用 bun' });
@@ -127,13 +138,13 @@ test('ask：多选 1,3 跨题分配；非数字 ⇒ 首题自由文本；越界 
   const m3 = makeManager('ask');
   m3.manager.submit('single:u3', 'single', 'u3', '开始', () => {});
   await flush();
-  expect(m3.manager.answerPendingAsk('single:u3', '9')).toBe('invalid_numeric');
+  expect(await m3.manager.answerPendingAsk('single:u3', '9')).toBe('invalid_numeric');
   expect(m3.manager.hasPendingAsk('single:u3')).toBe(true);
   await m3.manager.closeAll();
 });
 
-test('超时护栏（AC5）：no-output 回合在压缩 turnTimeoutMs 后被杀并报 turn_failed(timeout)；并发多回合各自计时互不清除', async () => {
-  const { manager } = makeManager('no-output', { turnTimeoutMs: 300, maxConcurrentTurns: 4 });
+test('超时护栏（AC5）：no-output 回合在压缩 turnTimeoutMs 后被杀并报 turn_failed(timeout)；并发多回合各自计时互不清除；子进程确已终止', async () => {
+  const { stateDir, manager } = makeManager('no-output', { turnTimeoutMs: 300, maxConcurrentTurns: 4 });
   const ev1: AgentEvent[] = [];
   const ev2: AgentEvent[] = [];
   manager.submit('single:u1', 'single', 'u1', '慢回合1', (ev) => { ev1.push(ev); });
@@ -144,17 +155,19 @@ test('超时护栏（AC5）：no-output 回合在压缩 turnTimeoutMs 后被杀�
     expect(fail).toBeDefined();
     expect((fail as { error: string }).error).toContain(TURN_TIMEOUT_ERROR);
   }
+  await assertPidsDead(stateDir, argvLog(stateDir).map((a) => a.pid)); // pr-review P5：终止证据
   await manager.closeAll();
 });
 
-test('信号无视的子进程：收割梯子升级 SIGKILL，turn_failed 仍按期发出', async () => {
-  const { manager } = makeManager('ignore-signals', { turnTimeoutMs: 300, reapEofMs: 200, reapTermMs: 200 });
+test('信号无视的子进程：收割梯子升级 SIGKILL，turn_failed 仍按期发出；子进程确已终止（SIGKILL 路径）', async () => {
+  const { stateDir, manager } = makeManager('ignore-signals', { turnTimeoutMs: 300, reapEofMs: 200, reapTermMs: 200 });
   const events: AgentEvent[] = [];
   manager.submit('single:u1', 'single', 'u1', '顽固回合', (ev) => { events.push(ev); });
   await flush(4_000); // 300ms 超时 + 200ms EOF 宽限 + 200ms TERM 宽限 + KILL 沉降
   const fail = events.find((e) => e.type === 'turn_failed');
   expect(fail).toBeDefined();
   expect((fail as { error: string }).error).toContain(TURN_TIMEOUT_ERROR);
+  await assertPidsDead(stateDir, argvLog(stateDir).map((a) => a.pid)); // pr-review P5
   await manager.closeAll();
 });
 
@@ -186,7 +199,7 @@ test('spawn 失败（ENOENT）：turn_failed 带可识别错误', async () => {
   await flush(600);
   const fail = events.find((e) => e.type === 'turn_failed') as { error: string } | undefined;
   expect(fail).toBeDefined();
-  expect(fail!.error).toMatch(/spawn|ENOENT/i);
+  expect(fail!.error).toMatch(/spawn|ENOENT|stdin write failed/i); // pr-review P2 后：管道死先于 spawn 错误回调也成立
   await manager.closeAll();
 });
 
@@ -265,6 +278,40 @@ test('群聊混合发送者批量回合：并发帽按排队发送者全体计�
   delete process.env.FAKE_CLAUDE_DELAY_MS;
 });
 
+test('终态回调抛错不产生重复终态：onEvent(turn_complete) reject ⇒ 恰一个终态事件、无补发 turn_failed（pr-review P4）', async () => {
+  const { manager } = makeManager('happy');
+  const events: AgentEvent[] = [];
+  let firstTerminalSeen = false;
+  manager.submit('single:u1', 'single', 'u1', 'x', (ev) => {
+    events.push(ev);
+    if (ev.type === 'turn_complete' && !firstTerminalSeen) {
+      firstTerminalSeen = true;
+      throw new Error('consumer broke mid-terminal'); // 终态后的消费方崩溃
+    }
+  });
+  await flush(800);
+  expect(events.filter((e) => e.type === 'turn_complete').length).toBe(1); // 恰一个终态
+  expect(events.filter((e) => e.type === 'turn_failed').length).toBe(0);   // 无补发失败（不重复终态）
+  await manager.closeAll();
+});
+
+test('帽满作答者被拒收：answerer-busy、pending 保持、发起人仍可作答（pr-review P1）', async () => {
+  const { manager } = makeManager('ask', { perUserInFlight: 3, maxConcurrentTurns: 8, turnTimeoutMs: 30_000, idleTtlMs: 60_000 });
+  // u2 占满自己的 3 个 in-flight（ask 等待长活）
+  manager.submit('single:a', 'single', 'u2', 'x1', () => {});
+  manager.submit('single:b', 'single', 'u2', 'x2', () => {});
+  manager.submit('single:c', 'single', 'u2', 'x3', () => {});
+  manager.submit('group:g1', 'group', 'u1', '开始', () => {});
+  await flush(200);
+  expect(manager.hasPendingAsk('group:g1')).toBe(true);
+  // u2（帽满、非发起人）作答 ⇒ 拒收；ask 保持 pending
+  expect(await manager.answerPendingAsk('group:g1', '1', 'u2')).toBe('answerer-busy');
+  expect(manager.hasPendingAsk('group:g1')).toBe(true);
+  // 发起人 u1（in-flight 1 < 3）不受影响
+  expect(await manager.answerPendingAsk('group:g1', '1', 'u1')).toBe('answered');
+  await manager.closeAll();
+});
+
 test('过期 ask（TTL 计时器路径）：ask_expired 恰一次、无通用 turn_failed（code-review C2/C3）', async () => {
   const { manager } = makeManager('ask', { idleTtlMs: 300, reapEofMs: 250, reapTermMs: 250 });
   const events: AgentEvent[] = [];
@@ -325,7 +372,7 @@ test('群作答者计入并发帽：帽下作答 ⇒ 归因生效，其第 4 回
   expect(manager.hasPendingAsk('single:b')).toBe(true);
   expect(manager.hasPendingAsk('group:g1')).toBe(true);
   // u2（in-flight 2 < 帽 3）作答群 ask：受理且归因——u2 计数升至 3
-  expect(manager.answerPendingAsk('group:g1', '1', 'u2')).toBe('answered');
+  expect(await manager.answerPendingAsk('group:g1', '1', 'u2')).toBe('answered');
   // 归因后 u2 达帽：第 4 回合排队（证明作答者确实计入平台帽）
   expect(manager.submit('single:d', 'single', 'u2', 'x4', () => {})).toBe('queued');
   await manager.closeAll();
