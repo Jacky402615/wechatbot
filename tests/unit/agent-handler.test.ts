@@ -222,3 +222,30 @@ test('通知帧预算耗尽即丢（不等待不逃逸）：queue-full 通知被
   await flush(50);
   expect(transport.sent.length).toBe(0); // 通知被丢（非关键）
 });
+
+test('ask 字节保底（code-review C6）：超长已产出文本不截掉编号清单——选项行完整在场', async () => {
+  const { handler, transport, manager } = makeHandler();
+  handler.register();
+  const longText = '很长的前置输出。'.repeat(3_000); // 远超 20000 字节预算
+  manager.nextEvents.push((emit) => {
+    emit({ type: 'text_delta', chatKey: 'single:u1', text: longText });
+    emit({
+      type: 'ask', chatKey: 'single:u1',
+      questions: [
+        { question: '第一题？', options: [{ label: '甲' }, { label: '乙' }] },
+        { question: '第二题？', options: [{ label: '丙' }, { label: '丁' }], multiSelect: true },
+      ],
+    });
+  });
+  transport.emit(MSG());
+  await flush(80);
+  const askFrame = transport.sent.at(-1)!;
+  expect(askFrame.finish).toBe(true);
+  expect(Buffer.byteLength(askFrame.content, 'utf8')).toBeLessThanOrEqual(20_000);
+  expect(askFrame.content).toContain('❓ 第一题？');
+  expect(askFrame.content).toContain('1. 甲');
+  expect(askFrame.content).toContain('2. 乙');
+  expect(askFrame.content).toContain('3. 丙');
+  expect(askFrame.content).toContain('4. 丁');        // 编号清单完整——未被前置输出挤出预算
+  expect(askFrame.content.indexOf('…[截断]')).toBeLessThan(askFrame.content.indexOf('❓ 第一题？')); // 截断标记只落在前置文本
+});

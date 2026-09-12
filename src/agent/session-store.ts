@@ -27,8 +27,17 @@ export function chatKeyOf(m: { chatType: 'single' | 'group'; chatId?: string; us
 /** 每 chat 会话档：base64url 文件名（不做 id 字符集假设）、原子写、0600。
  *  单写者由 W1 单网关契约（pidfile）保证。 */
 export class SessionStore {
-  constructor(private sessionsDir: string, private opts: { now?: () => Date } = {}) {
+  constructor(private sessionsDir: string, private opts: { now?: () => Date; onTelemetryError?: (err: Error, what: string) => void } = {}) {
     mkdirSync(sessionsDir, { recursive: true });
+  }
+
+  /** 遥测面写失败（活动时间/resume id）默认重抛由调用方处置；构造注入钩子则 warn-and-continue */
+  private telemetry(what: string, err: unknown): void {
+    if (this.opts.onTelemetryError) {
+      this.opts.onTelemetryError(err as Error, what);
+    } else {
+      throw err;
+    }
   }
 
   private now(): Date { return this.opts.now ? this.opts.now() : new Date(); }
@@ -43,8 +52,10 @@ export class SessionStore {
     let raw: string;
     try {
       raw = readFileSync(this.pathOf(chatKey), 'utf8');
-    } catch {
-      return null; // 无档（ENOENT）或不可读——一律视作无会话，调用方新建
+    } catch (e) {
+      // code-review C7：只有 ENOENT 是「无会话」；EACCES/EIO 等读取失败**上抛**（不吞 IO 错误）
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw e;
     }
     try {
       const s = JSON.parse(raw) as ChatSession;
@@ -52,7 +63,7 @@ export class SessionStore {
       if (s.status === 'closed') return null;
       return s;
     } catch {
-      return null; // 坏档 ⇒ 当作无会话（严格丢，不修复）
+      return null; // 坏档（非法 JSON/形状不符）⇒ 当作无会话（严格丢，不修复）
     }
   }
 
@@ -78,18 +89,28 @@ export class SessionStore {
     return this.create(chatKey, chatType);
   }
 
+  /** resume id 持久是回合副产物（code-review C4 分级）：写失败不拖垮回合，降级处置。 */
   setClaudeSessionId(chatKey: string, id: string): void {
     const s = this.get(chatKey);
     if (!s) return;
     s.claudeSessionId = id;
-    this.write(s);
+    try {
+      this.write(s);
+    } catch (e) {
+      this.telemetry('setClaudeSessionId', e);
+    }
   }
 
+  /** 活动时间是 TTL 遥测面（W1 state 同款降级）：写失败留痕不抛。 */
   updateActivity(chatKey: string): void {
     const s = this.get(chatKey);
     if (!s) return;
     s.lastActiveAt = this.now().toISOString();
-    this.write(s);
+    try {
+      this.write(s);
+    } catch (e) {
+      this.telemetry('updateActivity', e);
+    }
   }
 
   isStale(chatKey: string, ttlMs: number): boolean {

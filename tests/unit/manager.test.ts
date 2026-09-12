@@ -265,19 +265,46 @@ test('群聊混合发送者批量回合：并发帽按排队发送者全体计�
   delete process.env.FAKE_CLAUDE_DELAY_MS;
 });
 
-test('过期 ask：收割完成后才放行后续回合（新 spawn 不与旧进程重叠）', async () => {
+test('过期 ask（TTL 计时器路径）：ask_expired 恰一次、无通用 turn_failed（code-review C2/C3）', async () => {
+  const { manager } = makeManager('ask', { idleTtlMs: 300, reapEofMs: 250, reapTermMs: 250 });
+  const events: AgentEvent[] = [];
+  manager.submit('single:u1', 'single', 'u1', '开始', (ev) => { events.push(ev); });
+  await flush(150); // ask 落定（须早于 300ms 的 TTL 计时器）
+  expect(manager.hasPendingAsk('single:u1')).toBe(true);
+  await flush(1_800); // ask TTL(300ms) 计时器到点杀进程 + 收割 + runTurn EOF 路径走完
+  expect(manager.hasPendingAsk('single:u1')).toBe(false);   // 槽位与 pending 均已清
+  expect(events.filter((e) => e.type === 'ask_expired').length).toBe(1); // 恰一次
+  expect(events.filter((e) => e.type === 'turn_failed').length).toBe(0); // 无通用失败
+  await manager.closeAll();
+});
+
+test('弃置 ask（无人作答）：TTL 计时器到点自动释放全局槽位，排队回合获准运行（code-review C3）', async () => {
+  const { stateDir, manager } = makeManager('ask', { idleTtlMs: 400, maxConcurrentTurns: 1, turnTimeoutMs: 8_000 });
+  const evU2: AgentEvent[] = [];
+  manager.submit('single:u1', 'single', 'u1', '开始', () => {});
+  await flush();
+  expect(manager.hasPendingAsk('single:u1')).toBe(true);
+  // 全局帽=1 已被 ask 等待回合占用——另一 chat 排队
+  expect(manager.submit('single:u2', 'single', 'u2', '别的会话', (ev) => { evU2.push(ev); })).toBe('queued');
+  await flush(2_000); // ask TTL(400ms) 到点杀进程 + 收割 + 调度提升 + u2 回合跑起（再 ask）
+  const argvs = argvLog(stateDir);
+  expect(argvs.length).toBe(2); // u2 的回合确实运行了——槽位被自动释放过
+  expect(evU2.some((e) => e.type === 'ask')).toBe(true); // u2 回合正常起步（ask 场景再问）
+  await manager.closeAll();
+});
+
+test('过期 ask 后的新消息：收割完成后才放行（新 spawn 不与旧进程重叠）', async () => {
   const { stateDir, manager } = makeManager('ask', { idleTtlMs: 300, reapEofMs: 250, reapTermMs: 250 });
   const events: AgentEvent[] = [];
   manager.submit('single:u1', 'single', 'u1', '开始', (ev) => { events.push(ev); });
-  await flush();
+  await flush(150); // ask 落定（须早于 300ms 的 TTL 计时器）
   expect(manager.hasPendingAsk('single:u1')).toBe(true);
-  await new Promise((r) => setTimeout(r, 400)); // 会话 TTL 过期
-  expect(manager.expireStaleAsk('single:u1')).toBe(true);
+  await flush(900); // ask TTL(300ms) 已击杀旧进程（收割中/已完成）
   const v = manager.submit('single:u1', 'single', 'u1', '新问题', (ev) => { events.push(ev); });
-  expect(v).toBe('queued'); // 旧进程收割期间排队，不并行 spawn
-  await flush(1_500);
+  expect(['queued', 'started']).toContain(v); // 收割窗口内排队；收割完成则起步——绝不并行 spawn
+  await flush(1_800);
   const argvs = argvLog(stateDir);
-  expect(argvs.length).toBe(2); // 旧回合 + 收割完成后的新回合
+  expect(argvs.length).toBe(2); // 旧回合 + 新回合
   const exits = readFileSync(join(stateDir, 'exit.jsonl'), 'utf8').trim().split('\n')
     .map((l) => JSON.parse(l) as { pid: number; ts: number });
   const oldExit = exits.find((e) => e.pid === argvs[0]!.pid);

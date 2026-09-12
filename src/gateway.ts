@@ -165,7 +165,9 @@ export async function createGateway(
     ...overrides,
     ...(wsUrl ? { wsUrl } : {}),
   });
-  const sessions = new SessionStore(join(ws.botDir, 'sessions'));
+  const sessions = new SessionStore(join(ws.botDir, 'sessions'), {
+    onTelemetryError: (err, what) => logger.warn('session telemetry write failed', { what, err: err.message }),
+  });
   const manager = new AgentManager({
     workspacePath: workspace, sessions, logger,
     options: {

@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionStore, chatKeyOf } from '../../src/agent/session-store';
@@ -41,6 +41,15 @@ test('落盘：base64url 文件名、0600 权限、原子写（无残 tmp）、�
   expect(statSync(full).mode & 0o777).toBe(0o600); // 0600
   expect(files.some((f) => f.includes('.tmp'))).toBe(false);
   expect((JSON.parse(readFileSync(full, 'utf8')) as { chatKey: string }).chatKey).toBe('single:u1');
+});
+
+test('读取权限失败（EACCES）上抛而非当作无会话（code-review C7——不吞 IO 错误）', () => {
+  const { dir, store } = makeStore();
+  store.resumable('single:u1', 'single', 60_000);
+  const f = Buffer.from('single:u1', 'utf8').toString('base64url') + '.json';
+  chmodSync(join(dir, 'sessions', f), 0o000);
+  expect(() => store.get('single:u1')).toThrow();
+  chmodSync(join(dir, 'sessions', f), 0o600); // 还原，避免 tmp 清理告警
 });
 
 test('坏档（非法 JSON）⇒ resumable 当作无会话新建，不抛', () => {

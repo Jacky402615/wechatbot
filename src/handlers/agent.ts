@@ -88,7 +88,11 @@ export class AgentHandler {
   register(): void {
     this.deps.transport.on((event) => {
       if (event.type !== 'textMessage') return;
-      void this.onText(event.message);
+      // code-review C4：入站处理的意外失败必须可见（日志 + lastError），不冒 unhandled
+      this.onText(event.message).catch((e: unknown) => {
+        this.deps.logger.error('inbound handling failed', { msgid: event.message.msgid, err: (e as Error).message });
+        this.opts.onReplyError?.(e as Error);
+      });
     });
   }
 
@@ -138,10 +142,12 @@ export class AgentHandler {
         await this.maybeRefresh(chatKey);
         return;
       case 'ask': {
-        // 问题渲染保底预算（plan 评审 R2-F4/F7）：先截已产出文本，问题清单拿独立余量
+        // 问题渲染保底预算（plan 评审 R2-F4/F7 + code-review C6）：**问题清单先拿预算**，
+        // 已产出文本用余量——长输出不得截掉编号清单（AC4）；ask 本身超上限时截断带标记（确定性）
         const askText = renderAskText(ev.questions);
-        const askBudget = Math.min(Buffer.byteLength(askText, 'utf8'), Math.max(cap - 200, Math.floor(cap / 2)));
-        const accBudget = Math.max(cap - askBudget - 16, 0);
+        const SEP_BYTES = 2;
+        const askBudget = Math.min(Buffer.byteLength(askText, 'utf8'), cap - SEP_BYTES);
+        const accBudget = Math.max(cap - askBudget - SEP_BYTES, 0);
         const head = st.acc ? `${truncateUtf8(st.banner + st.acc, accBudget)}\n\n` : st.banner;
         const content = truncateUtf8(head + askText, cap);
         await this.send(st, content, true); // 闭流（D7 生命周期）
@@ -165,10 +171,18 @@ export class AgentHandler {
         this.streams.delete(chatKey);
         return;
       }
-      case 'ask_expired':
-        // 过期通知由 onText 的 banner 路径承载——本事件只作日志锚点
-        this.deps.logger.warn('ask expired', { chatKey });
+      case 'ask_expired': {
+        // 无人作答的 TTL 过期（code-review C3）：续流尚未发出——主动发一条过期通知收口
+        // （作答驱动的过期由 onText 的 banner 路径承载，此事件只作日志锚点时流已闭）
+        this.deps.logger.warn('ask expired (ttl)', { chatKey });
+        const pending = this.streams.get(chatKey);
+        if (pending && !pending.closed && !pending.acc && !pending.banner) {
+          this.streams.delete(chatKey);
+          await this.notice(st.ref, chatKey, '⚠️ 上一个问题已超时失效。');
+        }
+        this.streams.delete(chatKey);
         return;
+      }
     }
   }
 
