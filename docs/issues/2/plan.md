@@ -277,7 +277,7 @@ export interface InboundTextMessage {
   - `buildQueuedBatchPrompt(messages: string[]): string`
   - `truncateUtf8(text: string, maxBytes: number, marker?: string): string`
 
-- [ ] **Step 1: 写失败测试**（`tests/unit/parser.test.ts`，覆盖对抗面：畸形行/多题扁平编号/多选/越界/全角逗号/UTF-8 截断边界）
+- [x] **Step 1: 写失败测试**（`tests/unit/parser.test.ts`，覆盖对抗面：畸形行/多题扁平编号/多选/越界/全角逗号/UTF-8 截断边界）
 
 ```ts
 import { test, expect } from 'bun:test';
@@ -382,9 +382,9 @@ test('truncateUtf8：字节预算内原样；超限截断不切代理对且带�
 });
 ```
 
-- [ ] **Step 2: 跑测确认 FAIL** — Run: `bun test tests/unit/parser.test.ts`
+- [x] **Step 2: 跑测确认 FAIL** — Run: `bun test tests/unit/parser.test.ts`
   Expected: FAIL（模块不存在）
-- [ ] **Step 3: 实现 `src/agent/parser.ts`**
+- [x] **Step 3: 实现 `src/agent/parser.ts`**
 
 ```ts
 import type { InboundTextMessage } from '../transport/types';
@@ -532,9 +532,9 @@ export function truncateUtf8(text: string, maxBytes: number, marker = '…[截�
 }
 ```
 
-- [ ] **Step 4: 跑测确认 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration`
+- [x] **Step 4: 跑测确认 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration`
   Expected: PASS
-- [ ] **Step 5: Commit** — `git add src/agent/parser.ts tests/unit/parser.test.ts && git commit -m "feat(agent): pure stream-json/ask/numeric-reply/utf8-truncation parser"`
+- [x] **Step 5: Commit** — `git add src/agent/parser.ts tests/unit/parser.test.ts && git commit -m "feat(agent): pure stream-json/ask/numeric-reply/utf8-truncation parser"`
 
 ---
 
@@ -551,7 +551,7 @@ export function truncateUtf8(text: string, maxBytes: number, marker = '…[截�
   - `class SessionStore { constructor(sessionsDir: string, opts?: { now?: () => Date }); resumable(chatKey: string, chatType: 'single' | 'group', ttlMs: number): ChatSession; get(chatKey): ChatSession | null; create(chatKey, chatType): ChatSession; setClaudeSessionId(chatKey, id: string): void; updateActivity(chatKey): void; close(chatKey): void; isStale(chatKey, ttlMs): boolean }`
   - `chatKeyOf(m: { chatType: 'single' | 'group'; chatId?: string; userId: string }): string`（`single:<userid>` / `group:<chatid>`；群聊缺 chatId 抛 Error——调用方已在上游过滤）
 
-- [ ] **Step 1: 写失败测试**（`tests/unit/session-store.test.ts`）
+- [x] **Step 1: 写失败测试**（`tests/unit/session-store.test.ts`）
 
 ```ts
 import { test, expect } from 'bun:test';
@@ -619,9 +619,9 @@ test('close 后 get 返回 null（active 视图）；chatKey 超长拒绝（180 
 });
 ```
 
-- [ ] **Step 2: 跑测确认 FAIL** — Run: `bun test tests/unit/session-store.test.ts`
+- [x] **Step 2: 跑测确认 FAIL** — Run: `bun test tests/unit/session-store.test.ts`
   Expected: FAIL（模块不存在）
-- [ ] **Step 3: 实现 `src/agent/session-store.ts`**
+- [x] **Step 3: 实现 `src/agent/session-store.ts`**
 
 ```ts
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
@@ -637,7 +637,7 @@ export interface ChatSession {
   status: 'active' | 'closed';
 }
 
-const MAX_KEY_BYTES = 180; // 以 UTF-8 **字节**计（plan 评审 R2-F7：字符数 ≠ 编码字节数）：base64url(180B) ≈ 240 + '.json' = 245 < NAME_MAX(255)
+const MAX_KEY_BYTES = 160; // 执行修正（r1）：预算须按**原子写临时文件名**算——base64url(160B)=216 + '.json'=5 + tmp 后缀 17 = 238 < NAME_MAX(255)；180 会在 tmp 写入时 ENAMETOOLONG（测试实测）
 
 export function chatKeyOf(m: { chatType: 'single' | 'group'; chatId?: string; userId: string }): string {
   if (m.chatType === 'group') {
@@ -738,9 +738,9 @@ export class SessionStore {
 }
 ```
 
-- [ ] **Step 4: 跑测确认 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration`
+- [x] **Step 4: 跑测确认 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration`
   Expected: PASS
-- [ ] **Step 5: Commit** — `git add src/agent/session-store.ts tests/unit/session-store.test.ts && git commit -m "feat(agent): per-chat session store with lazy TTL, base64url names, atomic 0600 writes"`
+- [x] **Step 5: Commit** — `git add src/agent/session-store.ts tests/unit/session-store.test.ts && git commit -m "feat(agent): per-chat session store with lazy TTL, base64url names, atomic 0600 writes"`
 
 ---
 
