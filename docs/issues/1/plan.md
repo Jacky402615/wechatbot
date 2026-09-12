@@ -637,7 +637,7 @@ Expected: typecheck 0 错误；unit 全绿。任一红即停下修复，不带�
 **Interfaces:**
 - Produces: `class MockWecomServer`：`constructor(opts?: { authErrcode?: number })`；`start(): Promise<{ port: number; url: string }>`；`stop(): Promise<void>`；`pushTextMessage(reqId: string, msg: { msgid: string; userId: string; content: string }): void`；`kick(): void`（先推 `aibot_event_callback` `disconnected_event` 再关 socket）；`kill(): void`（直接 terminate 所有 socket）；`sentFrames: Array<{ cmd?: string; headers: { req_id: string }; body?: unknown }>`；`get subscribeCount(): number`；`get pingCount(): number`。应答规则：`aibot_subscribe` → `{headers:{req_id}, errcode: opts.authErrcode ?? 0}`；其余一切带 `req_id` 的帧（含 `ping`、`aibot_respond_msg`）→ `{headers:{req_id}, errcode: 0, errmsg: 'ok'}`。
 
-- [ ] **Step 1: 写失败测试 `tests/integration/mock-server.test.ts`**
+- [x] **Step 1: 写失败测试 `tests/integration/mock-server.test.ts`**
 
 ```ts
 import { test, expect } from 'bun:test';
@@ -675,8 +675,8 @@ async function waitUntil(cond: () => boolean, ms = 2000): Promise<void> {
 }
 ```
 
-- [ ] **Step 2: 验证 FAIL** — Run: `bun test tests/integration/mock-server.test.ts` Expected: FAIL — helper 不存在。
-- [ ] **Step 3: 写 `tests/helpers/mock-wecom-server.ts`**
+- [x] **Step 2: 验证 FAIL** — Run: `bun test tests/integration/mock-server.test.ts` Expected: FAIL — helper 不存在。
+- [x] **Step 3: 写 `tests/helpers/mock-wecom-server.ts`**
 
 ```ts
 import { WebSocketServer, WebSocket } from 'ws';
@@ -766,8 +766,8 @@ export class MockWecomServer {
 }
 ```
 
-- [ ] **Step 4: 验证 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration` Expected: 全绿（mock-server 1 项；本任务是 ws/SDK CJS 互操作的第一个 typecheck 关口，`esModuleInterop` 已在 Task 1 配好）。
-- [ ] **Step 5: Commit** — `git add tests/helpers/mock-wecom-server.ts tests/integration/mock-server.test.ts && git commit -m "test: mock wecom ws server speaking the frame protocol"`
+- [x] **Step 4: 验证 PASS** — Run: `bun run typecheck && bun test tests/unit tests/integration` Expected: 全绿（mock-server 1 项；本任务是 ws/SDK CJS 互操作的第一个 typecheck 关口，`esModuleInterop` 已在 Task 1 配好）。
+- [x] **Step 5: Commit** — `git add tests/helpers/mock-wecom-server.ts tests/integration/mock-server.test.ts && git commit -m "test: mock wecom ws server speaking the frame protocol"`
 
 ### Task 7: Transport port + SDK adapter（本计划最高风险任务）
 
