@@ -358,6 +358,11 @@ test('过期 ask 后的新消息：收割完成后才放行（新 spawn 不与�
   expect(oldExit).toBeDefined();
   expect(oldExit!.ts).toBeLessThanOrEqual(argvs[1]!.ts); // 旧进程退出先于新 spawn（R2-F3 的可证形态）
   expect(events.filter((e) => e.type === 'ask').length).toBe(2); // 新回合正常起步（ask 场景再问一次）
+  // R3-2：旧回合终态（ask_expired）先于新回合任何事件——替补不抢跑
+  const expiredIdx = events.findIndex((e) => e.type === 'ask_expired');
+  const secondAskIdx = events.findIndex((e, i) => i > events.indexOf(events.find((e2) => e2.type === 'ask')!) && e.type === 'ask');
+  expect(expiredIdx).toBeGreaterThan(-1);
+  expect(secondAskIdx).toBeGreaterThan(expiredIdx);
   await manager.closeAll();
 });
 
@@ -375,5 +380,21 @@ test('群作答者计入并发帽：帽下作答 ⇒ 归因生效，其第 4 回
   expect(await manager.answerPendingAsk('group:g1', '1', 'u2')).toBe('answered');
   // 归因后 u2 达帽：第 4 回合排队（证明作答者确实计入平台帽）
   expect(manager.submit('single:d', 'single', 'u2', 'x4', () => {})).toBe('queued');
+  await manager.closeAll();
+});
+
+test('并发作答单认领：同一 tick 两个作答 ⇒ 恰一个 control_response、另一个 none（pr-review R3-1）', async () => {
+  const { stateDir, manager } = makeManager('ask', { turnTimeoutMs: 30_000 });
+  manager.submit('single:u1', 'single', 'u1', '开始', () => {});
+  await flush(150);
+  expect(manager.hasPendingAsk('single:u1')).toBe(true);
+  const [r1, r2] = await Promise.all([
+    manager.answerPendingAsk('single:u1', '1', 'u1'),
+    manager.answerPendingAsk('single:u1', '2', 'u9'), // 双击/抢答：同一 pending
+  ]);
+  expect([r1, r2].sort()).toEqual(['answered', 'none']); // 同步认领——恰一个成功
+  await flush(600);
+  const responses = stdinLog(stateDir).filter((l) => l.type === 'control_response');
+  expect(responses.length).toBe(1); // 恰一份 control_response
   await manager.closeAll();
 });

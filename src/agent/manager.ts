@@ -167,8 +167,9 @@ export class AgentManager {
     return true;
   }
 
-  /** 管道已死的回合 abort（pr-review R2-P2）：SIGINT + 槽位保留到收割完成——
-   *  runTurn 的 EOF 失败路径是唯一终态出口（不在此发事件，避免重复终态）。 */
+  /** 管道已死的回合 abort（pr-review R2-P2 + R3-2）：标记 + SIGINT 杀——**不做清理、不排调度**。
+   *  runTurnInner 是唯一清理所有者：其 EOF 失败路径先发唯一终态、再收割释放槽位并 drain——
+   *  若在此处（进程退出即回调）先行释放，替补回合可在旧终态事件之前起跑并污染流序（AC3）。 */
   private abortDyingTurn(chatKey: string, proc: ChildProcess): void {
     const turn = this.busy.get(chatKey);
     if (turn?.proc === proc) {
@@ -177,15 +178,12 @@ export class AgentManager {
       turn.terminating = true;
     }
     try { proc.kill('SIGINT'); } catch { /* 已退 */ }
-    void terminateChild(proc, this.opts.reapEofMs, this.opts.reapTermMs)
-      .then(() => {
-        if (this.busy.get(chatKey)?.proc === proc) this.busy.delete(chatKey);
-        this.scheduleAfterRelease(chatKey);
-      });
+    void terminateChild(proc, this.opts.reapEofMs, this.opts.reapTermMs); // 收割并行推进；释放仍归 runTurnInner
   }
 
-  /** ask 等待回合的过期击杀：哨兵标记 + 槽位保留到收割完成（紧随的新 submit 排队，不并行 spawn）。
-   *  runTurn 的 EOF 失败路径见哨兵即发 ask_expired（不发 turn_failed——code-review C2）。 */
+  /** ask 等待回合的过期击杀：哨兵标记 + SIGINT 杀。清理与调度归 runTurnInner（R3-2 唯一所有者：
+   *  EOF 失败路径见哨兵即发 ask_expired，终态落定后才释放槽位并 drain——替补回合不抢跑）。
+   *  紧随的新 submit 因 terminating 持槽而排队。 */
   private killAskTurn(chatKey: string, proc: ChildProcess, reason: string): void {
     const turn = this.busy.get(chatKey);
     if (turn?.proc === proc) {
@@ -194,11 +192,7 @@ export class AgentManager {
       turn.terminating = true;
       expiredAskProcs.add(proc);
       try { proc.kill('SIGINT'); } catch { /* 已退 */ }
-      void terminateChild(proc, this.opts.reapEofMs, this.opts.reapTermMs)
-        .then(() => {
-          if (this.busy.get(chatKey) === turn) this.busy.delete(chatKey);
-          this.scheduleAfterRelease(chatKey);
-        });
+      void terminateChild(proc, this.opts.reapEofMs, this.opts.reapTermMs); // 收割并行推进；释放仍归 runTurnInner
     }
     this.deps.logger.warn(reason, { chatKey });
   }
@@ -239,13 +233,17 @@ export class AgentManager {
       this.pendingAsks.delete(chatKey);
       return 'none';
     }
-    // 平台帽执行（pr-review P1）：非本回合发起人且已达帽 ⇒ 拒收作答（pending 保持，稍后可重试）
+    // 平台帽执行（pr-review P1）：非本回合发起人且已达帽 ⇒ 拒收作答（pending 保持，稍后可重试）。
+    // 必须先于认领——被拒收的作答不得消费 ask。
     const turn = this.busy.get(chatKey);
     const isInitiator = turn?.proc === entry.proc && answeringUserId !== undefined && turn.initiators.includes(answeringUserId);
     if (answeringUserId !== undefined && !isInitiator && this.userInFlight(answeringUserId) >= this.opts.perUserInFlight) {
       this.deps.logger.warn('group answerer at per-user in-flight cap — answer deferred', { chatKey, answeringUserId });
       return 'answerer-busy';
     }
+    // 同步认领（pr-review R3-1）：await 写回调窗口内的第二个作答（双击/群内抢答）必须走 'none'，
+    // 不得重复写 control_response 或重复占帽位——pendingAsks 的删除先于一切 await。
+    this.pendingAsks.delete(chatKey);
     // 帽位预约（pr-review R2-P1）：await 写回调的窗口内并发的 submit 不得再吃到同一帽位——
     // 先占位，写失败再回滚（原子性以同步占位保证，JS 单线程下无交错）。
     let reserved = false;
@@ -260,11 +258,10 @@ export class AgentManager {
     if (!wrote) {
       if (reserved && turn?.initiators.includes(answeringUserId!)) turn.initiators = turn.initiators.filter((u) => u !== answeringUserId); // 回滚预约
       this.deps.logger.warn('control_response write failed (child dying) — aborting turn', { chatKey });
-      this.pendingAsks.delete(chatKey);
+      // 不归还 pending（pr-review R3-1 简化）：子进程已被 abort 杀死，归还只会让后续作答写死管道
       this.abortDyingTurn(chatKey, entry.proc); // pr-review R2-P2：管道死 ⇒ 杀+收割，EOF 路径发唯一 turn_failed
       return 'none';
     }
-    this.pendingAsks.delete(chatKey);
     try {
       this.deps.sessions.updateActivity(chatKey);
     } catch (e) {
