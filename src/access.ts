@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { ConfigError } from './config';
 
 export type AccessTier = 'admin' | 'approved' | 'rejected' | 'unknown';
@@ -25,11 +25,20 @@ export class AccessError extends ConfigError {}
 
 const KEYS = ['admin', 'approved', 'rejected', 'groups'] as const;
 
-/** 严格形状校验：未知键、非字符串数组、空串、列表内重复、单 id 超 128 字节、总条目超 1000
- *  ⇒ AccessError（W1 严格配置同构；字节与条目双界使逐帧同步解析的每帧开销有确定性上界——
- *  PR-review P3：热重读不得威胁 enter_chat 5s 窗；Set 去重/成员判定——O(n)） */
+/** 严格形状校验：未知键、非字符串数组、空串、列表内重复、单 id 超 128 字节、总条目超 1000、
+ *  文件超 256 KB ⇒ AccessError（W1 严格配置同构；字节/条目/文件三重界使逐帧同步读取+解析的
+ *  开销有确定性上界——PR-review P3：热重读不得威胁 enter_chat 5s 窗；Set 去重/成员判定——O(n)） */
 const MAX_ID_BYTES = 128;
 const MAX_TOTAL_ENTRIES = 1000;
+const MAX_FILE_BYTES = 262_144; // 256 KB：1000 条 × 128B + 结构 + 余量；空白/转义填充也拦在读前
+
+function readBounded(path: string): string {
+  const size = statSync(path).size;
+  if (size > MAX_FILE_BYTES) {
+    throw new AccessError(`access file exceeds ${MAX_FILE_BYTES} bytes (${size}) at ${path}`);
+  }
+  return readFileSync(path, 'utf8');
+}
 
 export function parseAccess(text: string, path: string): AccessState {
   let raw: Record<string, unknown>;
@@ -95,8 +104,9 @@ export class AccessGate {
   constructor(private accessPath: string, private opts: { onError?: (err: Error) => void } = {}) {
     let text: string;
     try {
-      text = readFileSync(accessPath, 'utf8');
+      text = readBounded(accessPath);
     } catch (e) {
+      if (e instanceof AccessError) throw e;
       // ENOENT/权限等读失败一律 AccessError（plan 评审 R2-F1）——启动响亮、类型如一
       throw new AccessError(`cannot read ${accessPath}: ${(e as Error).message}`);
     }
@@ -105,7 +115,7 @@ export class AccessGate {
 
   load(): AccessSnapshot {
     try {
-      this.state = parseAccess(readFileSync(this.accessPath, 'utf8'), this.accessPath);
+      this.state = parseAccess(readBounded(this.accessPath), this.accessPath);
     } catch (e) {
       this.opts.onError?.(e as Error);
     }

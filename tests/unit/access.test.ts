@@ -85,3 +85,14 @@ test('总条目帽（PR-review P3）：四列表合计超 1000 ⇒ AccessError�
   expect(snap.tierOf('a599')).toBe('approved');
   expect(snap.groupAllowed('b399')).toBe(true);
 });
+
+test('文件字节帽（PR-review F3）：>256KB 的合法形状文件在读前被拒（空白填充也拦）', () => {
+  const dir = tmp();
+  const padded = '{ "approved": ["ok"], "padding": "' + ' '.repeat(300_000) + '" }';
+  // 注：未知键已被拒——用合法键 + 空白填充构造纯体积超限：数组内超长空白字符串不合法，
+  // 故以 JSON 外层空白构造：文件 = 空白 + 合法对象
+  const big = ' '.repeat(300_000) + '{ "approved": ["ok"] }';
+  writeFileSync(join(dir, '.bot', 'access.json'), big);
+  expect(() => new AccessGate(join(dir, '.bot', 'access.json'))).toThrow(AccessError);
+  void padded;
+});

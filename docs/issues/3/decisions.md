@@ -82,7 +82,7 @@ Codex 裁定（采纳）：/status 排除出群命令面；「群控制权属谁
 
 ## 评审缺失记录
 
-- 无。codex 调用记录：`options` 轮 ×1（verdict: needs-attention，10 项全部方向性同意、强化全部采纳、0 项否决；2 项信息缺口以配置钮 + FLAGGED 吸收——D3 真实 @ 载荷、D2/D10 群授权边界）；`plan` 轮 R1（verdict: needs-attention，7 项 findings 全部采纳修复进 plan.md——见下节）；`plan` 轮 R2（verdict: needs-attention，5 项 findings 全部采纳修复——见 R2 节）；`plan` 轮 R3（verdict: needs-attention，3 项 findings 全部采纳修复——见 R3 节。轮次预算 3 已用尽，R3 修复未再跑第 4 轮复验，残余风险由 Step 3.5 自审清单 + 执行阶段 Checkpoint A–D full gate 兜底）。
+- 无。codex 调用记录：`options` 轮 ×1（verdict: needs-attention，10 项全部方向性同意、强化全部采纳、0 项否决；2 项信息缺口以配置钮 + FLAGGED 吸收——D3 真实 @ 载荷、D2/D10 群授权边界）；`plan` 轮 R1（verdict: needs-attention，7 项 findings 全部采纳修复进 plan.md——见下节）；`plan` 轮 R2（verdict: needs-attention，5 项 findings 全部采纳修复——见 R2 节）；`plan` 轮 R3（verdict: needs-attention，3 项 findings 全部采纳修复——见 R3 节。轮次预算 3 已用尽，R3 修复未再跑第 4 轮复验，残余风险由 Step 3.5 自审清单 + 执行阶段 Checkpoint A–D full gate 兜底）；`code` 轮 ×2（Building 收尾：R1 4 项 + R2 4 项——除 HR 门槛 pushback 外全修）；`pr` 轮 ×2（PR-Review r1：初评 3 项 + fix-loop 1 复评 5 项——见「PR-Review 轮增补」节）。
 
 ## plan 评审 R1 修订（7 项全部采纳）
 
@@ -107,6 +107,13 @@ Codex 裁定（采纳）：/status 排除出群命令面；「群控制权属谁
 - **AccessError 契约归一（R3-F1）**：`AccessError extends ConfigError`——缺失/不可读/损坏 access.json 的启动失败与 W1/W2 配置错误同契约（统一 instanceof 消费面）；Task 7 测试断言双重 instanceof，SPEC/README 措辞同口径。
 - **Task 6 提交序保绿（R3-F2）**：createGateway 接线（AccessGate 注入 + 交叉校验）与 agent.test.ts setup 基线迁移**并入 Task 6 同 commit**——access 必填依赖落地的同时接线上游、迁移下游测试，Task 6 commit 自身 `bun run typecheck && bun test` 全绿；Task 7 重定义为测试固化任务（零实现改动）。
 - **welcome 平台拒绝可验证（R3-F3）**：mock 服务端增 `welcomeErrcode` 错误模式（对 aibot_respond_welcome_msg 回非 0 errcode）；transport 测试断言 `replyWelcome` 在平台拒绝时 reject（errcode=40097 样例）——handler 的 ERROR 审计路径有真实契约锚点。
+
+## PR-Review 轮增补（r1，codex kind=pr ×2 轮）
+
+- **D2 增补——access schema 执行期收紧**（PR-review F3/F4 采纳并补记）：`parseAccess` 增三重确定性界——单 id ≤128 utf8 字节、四列表合计 ≤1000 条、文件 ≤256 KB（statSync 读前判界）。动机：access 逐帧同步热重读，无界合法配置的读取+解析开销会威胁 enter_chat 5s 窗（平台契约硬限）；Set 去重/成员判定 O(n)。`/status` 名单渲染封顶前 20 项 + 总数标记（20KB 运输上限护栏）；**全量权威名单 = access.json 本身**（owner 直读，SPEC 明示）——分页查看属新特性，不在本 PR 评审轮扩张。
+- **/stop 单回执不变量最终形**（PR-review P2/F2）：Building 轮 R2-F4 引入的 `terminalEmitted` 标志**回收**——其在终帧派发 await 期间过早置位，/stop 反会产生 idle 误报（与在途终帧双回执）。最终语义：终态派发在途的 /stop 不另发任何回执，本代终帧（含超时/ask 过期文案）即唯一收口；SIGINT 对垂死进程 no-op。SPEC 同步（旧「按 idle 回执」措辞删除）。
+- **listActive 校验深度 pushback**（PR-review F5 否决）：codex 建议逐字段深校验 ChatSession——**否决**：listActive 与 `get()`/`resumable()` 的校验深度同源（chatKey+status 即 store 的权威有效性口径——W2「形状不符当作无会话」决策）；单独深化 listActive 会使 /status 计数与 get() 复活行为不一致。深校验是全 store 范畴的重构，超出本 PR。
+- **HR 证据门槛维持**（PR-review F1/P1 pushback，同 Building 轮 F1）：四项真机证据（@ 载荷、welcome ≤5s、群授权签认、拒绝送达）owner 在 Human-Review 填写——PR 描述携带空栏清单。
 
 ## FLAGGED-FOR-HUMAN 汇总
 
