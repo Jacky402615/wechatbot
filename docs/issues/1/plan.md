@@ -1795,9 +1795,9 @@ export { isPidAlive };
 - Consumes: Task 7/8/9 实测行为（重连/被踢/echo 的测试结论）+ Task 13 的 soak 实测时延。
 - Produces: 仓库根行为契约，含 transport 节。
 
-- [ ] **Step 0: 先取证据（硬前置）** — 按「执行顺序」此时 Task 13 Step 1–2 已完成（soak 文件已落地且已跑过）。若尚未跑：先做 Task 13 Step 1–2 再回到本步。
+- [x] **Step 0: 先取证据（硬前置）** — 按「执行顺序」此时 Task 13 Step 1–2 已完成（soak 文件已落地且已跑过）。若尚未跑：先做 Task 13 Step 1–2 再回到本步。
   记录 soak console 输出的 `outageMs` / `resubscribeDelayMs`；同时从 Task 7/8 测试日志摘取重连观察。**SPEC 重连节的每个时序数字只能来自这些实测值——禁止占位符进入提交。**
-- [ ] **Step 1: 写 `SPEC.md`**（结构如下，措辞以 Step 0 实测数据为准）：
+- [x] **Step 1: 写 `SPEC.md`**（结构如下，措辞以 Step 0 实测数据为准）：
 
 ```md
 # wechatbot SPEC
@@ -1834,10 +1834,10 @@ WeCom 智能机器人 gateway，长连接模式。镜像 feishubot 的角色：�
 - 退出码：0 正常；1 运行期失败（凭据/订阅/启动即死）；2 用法错误。
 ```
 
-- [ ] **Step 2: 更新 `README.md`**：项目一句话、安装（GitHub Packages：`@jacky402615/wechatbot`，`.npmrc` 指 `https://npm.pkg.github.com`）、快速开始（填 `.env` → `wechatbot start` → `wechatbot status`）、指向 SPEC.md。**快速开始不提 `WECOM_WS_URL`**（D12）。
-- [ ] **Step 3: 验证** — Run: `bun run typecheck && bun test tests/unit tests/integration && grep -c 'stream' SPEC.md && ! grep -nE '〔|TBD|待填|执行时填写' SPEC.md`
+- [x] **Step 2: 更新 `README.md`**：项目一句话、安装（GitHub Packages：`@jacky402615/wechatbot`，`.npmrc` 指 `https://npm.pkg.github.com`）、快速开始（填 `.env` → `wechatbot start` → `wechatbot status`）、指向 SPEC.md。**快速开始不提 `WECOM_WS_URL`**（D12）。
+- [x] **Step 3: 验证** — Run: `bun run typecheck && bun test tests/unit tests/integration && grep -c 'stream' SPEC.md && ! grep -nE '〔|TBD|待填|执行时填写' SPEC.md`
   Expected: 全绿；grep ≥ 1；SPEC 无占位残渣（Step 0 已把实测值填入重连节）。
-- [ ] **Step 4: Commit** — `git add SPEC.md README.md && git commit -m "docs: SPEC transport behavior contract and README quickstart"`
+- [x] **Step 4: Commit** — `git add SPEC.md README.md && git commit -m "docs: SPEC transport behavior contract and README quickstart"`
 
 ### Task 11: 构建管道 + dist 洁净校验（AC6）
 
