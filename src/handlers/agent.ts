@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import type { WeComTransport, ReplyRef, InboundTextMessage } from '../transport/types';
+import type { WeComTransport, ReplyRef, InboundTextMessage, InboundEnterChat } from '../transport/types';
 import type { BotLogger } from '../logger';
 import type { AgentEvent, AgentEventHandler } from '../agent/manager';
+import { TURN_ABORTED_ERROR } from '../agent/manager';
 import { renderAskText, buildContextPreamble, truncateUtf8 } from '../agent/parser';
 import { chatKeyOf } from '../agent/session-store';
+import type { AccessGate, AccessSnapshot } from '../access';
+import { parseCommand, stripMention, helpText, welcomeText, statusText, REJECTION_TEXT, type ParsedCommand } from '../commands';
 
 const REFRESH_INTERVAL_MS = 2_000;      // ≤30 帧/分钟（D5）
 const MAX_CONTENT_BYTES = 20_000;       // SDK 硬限 20480 − 余量（D5）
@@ -17,6 +20,10 @@ export interface AgentManagerPort {
   answerPendingAsk(chatKey: string, text: string, answeringUserId?: string): Promise<'answered' | 'invalid_numeric' | 'none' | 'answerer-busy'>;
   hasPendingAsk(chatKey: string): boolean;
   expireStaleAsk(chatKey: string): boolean;
+  abortChat(chatKey: string): { status: 'stopped' | 'stopping' | 'idle'; dropped: number };
+  resetSession(chatKey: string): void;
+  inFlightCount(): number;
+  activeSessionCount(): { active: number; corrupt: number };
   closeAll(): Promise<void>;
 }
 
@@ -72,6 +79,7 @@ export interface AgentHandlerOptions {
 }
 
 function userFacingError(error: string): string {
+  if (error === TURN_ABORTED_ERROR) return '⏹ 已停止当前回合';
   if (error.includes('turn timeout')) return '⏱ 回合超时（10 分钟）已截断，请继续提问以重开会话';
   if (/spawn|ENOENT/i.test(error)) return '⚠️ claude 不可用，请联系管理员';
   return '⚠️ 处理失败，请稍后重试';
@@ -81,12 +89,23 @@ export class AgentHandler {
   private streams = new Map<string, TurnStream>();
   private limiter: ConversationRateLimiter;
 
-  constructor(private deps: { transport: WeComTransport; logger: BotLogger; manager: AgentManagerPort; workspace: string }, private opts: AgentHandlerOptions = {}) {
+  constructor(private deps: { transport: WeComTransport; logger: BotLogger; manager: AgentManagerPort; workspace: string; access: AccessGate; mentionName?: string }, private opts: AgentHandlerOptions = {}) {
     this.limiter = opts.rateLimiter ?? new ConversationRateLimiter();
   }
 
   register(): void {
     this.deps.transport.on((event) => {
+      if (event.type === 'enterChat') {
+        // 5s 硬路径（D5）：分层欢迎——同步 tier 判定后立即 replyWelcome，无前置 await
+        this.onEnterChat(event.message).catch((e: unknown) => {
+          this.deps.logger.error('welcome handling failed', { msgid: event.message.msgid, err: (e as Error).message });
+        });
+        return;
+      }
+      if (event.type === 'feedbackEvent') {
+        this.deps.logger.info('feedback event', { msgid: event.message.msgid, userId: event.message.userId, chatType: event.message.chatType });
+        return;
+      }
       if (event.type !== 'textMessage') return;
       // code-review C4：入站处理的意外失败必须可见（日志 + lastError），不冒 unhandled。
       // pr-review P3：源头用户不得无回声——兜底一次性「处理失败」终帧（预算耗尽即丢）。
@@ -116,13 +135,47 @@ export class AgentHandler {
       return;
     }
     const chatKey = chatKeyOf(m);
+    // 单帧单快照（plan 评审 R1-F2）：本帧全部判定共用同一 access 版本
+    const snap = this.deps.access.load();
+    let content = m.content;
+    if (m.chatType === 'group') {
+      // 群策略（D2/D3）：allowlist → rejected 静默 → @ 提及 token 边界匹配剥离
+      if (!snap.groupAllowed(m.chatId!)) {
+        this.deps.logger.debug('group not allow-listed, ignored', { msgid: m.msgid, chatId: m.chatId });
+        return;
+      }
+      const tier = snap.tierOf(m.userId);
+      if (tier === 'rejected') {
+        this.deps.logger.warn('rejected sender in group ignored', { msgid: m.msgid, userId: m.userId });
+        return;
+      }
+      const stripped = stripMention(m.content, this.deps.mentionName);
+      if (stripped === null) {
+        this.deps.logger.debug('group text without bot mention ignored', { msgid: m.msgid });
+        return;
+      }
+      content = stripped;
+      if (content.trim() === '') return;
+    } else {
+      const tier = snap.tierOf(m.userId);
+      if (tier !== 'admin' && tier !== 'approved') {
+        this.deps.logger.info('p2p sender not authorized', { msgid: m.msgid, userId: m.userId });
+        await this.notice(m.replyTo, chatKey, REJECTION_TEXT);
+        return;
+      }
+    }
+    const cmd = parseCommand(content);
+    if (cmd) {
+      await this.dispatchCommand(cmd, m, chatKey, snap);
+      return;
+    }
     // 顺序硬约束（plan 评审 F4）：先判过期——过期 ask 绝不作答，入站按新回合处理
     if (this.deps.manager.expireStaleAsk(chatKey)) {
       const st = this.ensureStream(m.replyTo, chatKey);
       st.banner = `${st.banner}⚠️ 上一个问题已超时失效，已开启新会话\n\n`;
       st.ref = m.replyTo; // 过期后的新回合绑最新回调（F5）
     } else if (this.deps.manager.hasPendingAsk(chatKey)) {
-      const r = await this.deps.manager.answerPendingAsk(chatKey, m.content, m.userId);
+      const r = await this.deps.manager.answerPendingAsk(chatKey, content, m.userId);
       if (r === 'answered') {
         const st = this.streams.get(chatKey);
         if (st && !st.closed) st.ref = m.replyTo; // 答复后的续输出绑作答回调（F5）
@@ -139,12 +192,70 @@ export class AgentHandler {
       }
       // 'none'：pending 已死——按新消息继续
     }
-    const prompt = buildContextPreamble({ userId: m.userId, chatKey, chatType: m.chatType }) + m.content;
+    const prompt = buildContextPreamble({ userId: m.userId, chatKey, chatType: m.chatType }) + content;
     const verdict = this.deps.manager.submit(chatKey, m.chatType, m.userId, prompt, (ev) => this.bridge(m.replyTo, chatKey, ev));
     if (verdict === 'queue-full') {
       await this.notice(m.replyTo, chatKey, '消息队列已满，请稍后再试。');
     }
     // 'queued'：不打扰——回合结束后的批回合回执（AC3）
+  }
+
+  /** 网关命令分派（D4/D6/D9/D10）——已过 gate；snap 为本帧 access 快照（R1-F2 同版本授权）。 */
+  private async dispatchCommand(cmd: ParsedCommand, m: InboundTextMessage, chatKey: string, snap: AccessSnapshot): Promise<void> {
+    this.deps.logger.info('command', { name: cmd.name, chatKey, userId: m.userId });
+    switch (cmd.name) {
+      case 'help':
+        await this.notice(m.replyTo, chatKey, helpText());
+        return;
+      case 'new': {
+        this.deps.manager.abortChat(chatKey);
+        this.deps.manager.resetSession(chatKey);
+        await this.notice(m.replyTo, chatKey, '🔄 已重置会话，下一条消息将开启全新对话。');
+        return;
+      }
+      case 'stop': {
+        const r = this.deps.manager.abortChat(chatKey);
+        if (r.status === 'idle') {
+          // stopped/stopping：不另发 ack——中止终帧（turn_failed→「已停止当前回合」）即回执（D4）
+          await this.notice(m.replyTo, chatKey, r.dropped > 0 ? `已清空 ${r.dropped} 条排队消息；当前没有进行中的回合` : '当前没有进行中的回合');
+        }
+        return;
+      }
+      case 'status': {
+        if (m.chatType !== 'single' || snap.tierOf(m.userId) !== 'admin') {
+          await this.notice(m.replyTo, chatKey, '/status 仅管理员私聊可用。');
+          return;
+        }
+        const conn = this.deps.transport.connectionStatus();
+        const sessions = this.deps.manager.activeSessionCount();
+        await this.notice(m.replyTo, chatKey, statusText({
+          connected: conn.connected, authenticated: conn.authenticated,
+          admins: snap.admin, approved: snap.approved, groups: snap.groups,
+          activeSessions: sessions.active, corruptSessions: sessions.corrupt,
+          inFlight: this.deps.manager.inFlightCount(),
+        }));
+        return;
+      }
+      default:
+        await this.notice(m.replyTo, chatKey, `未知命令：/${cmd.name}\n\n${helpText()}`);
+    }
+  }
+
+  /** enter_chat 分层欢迎（D5）：allowed → 欢迎+命令清单；rejected/unknown → 拒绝文案；
+   *  群 enter_chat 忽略。发送失败留痕不影响消息面。 */
+  private async onEnterChat(m: InboundEnterChat): Promise<void> {
+    if (m.chatType !== 'single') {
+      this.deps.logger.debug('group enter_chat ignored', { msgid: m.msgid });
+      return;
+    }
+    const snap = this.deps.access.load();
+    const tier = snap.tierOf(m.userId);
+    const content = tier === 'admin' || tier === 'approved' ? welcomeText() : REJECTION_TEXT;
+    try {
+      await this.deps.transport.replyWelcome(m.replyTo, content);
+    } catch (e) {
+      this.deps.logger.error('welcome reply failed', { msgid: m.msgid, userId: m.userId, err: (e as Error).message });
+    }
   }
 
   private async bridge(ref: ReplyRef, chatKey: string, ev: AgentEvent): Promise<void> {

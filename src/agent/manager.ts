@@ -8,6 +8,7 @@ import {
 } from './parser';
 
 export const TURN_TIMEOUT_ERROR = 'turn timeout exceeded';
+export const TURN_ABORTED_ERROR = 'turn aborted by user command';
 const DEFAULT_IDLE_TTL_MS = 60 * 60_000;
 const DEFAULT_TURN_TIMEOUT_MS = 570_000;   // 平台 10min − 30s 安全边距；自 spawn 起算（D6）
 const DEFAULT_MAX_CONCURRENT_TURNS = 4;    // 资源帽（config 注入）
@@ -83,6 +84,7 @@ const activeTerminations = new WeakMap<ChildProcess, Promise<void>>();
 const timedOutProcs = new WeakSet<ChildProcess>();       // 超时击杀哨兵（runTurn 据此发 TURN_TIMEOUT_ERROR）
 const resumeNotFoundProcs = new WeakSet<ChildProcess>(); // resume 失败重试哨兵（恰好一次）
 const expiredAskProcs = new WeakSet<ChildProcess>();     // ask 过期击杀哨兵（runTurn 据此发 ask_expired，不发 turn_failed——code-review C2）
+const abortedProcs = new WeakSet<ChildProcess>();        // /stop //new 用户中止哨兵（EOF 路径据此发中止终态，D4）
 const stdinFailedProcs = new WeakSet<ChildProcess>();   // stdin 异步失败（EPIPE）哨兵——后续写一律拒收（code-review R2-C3）
 
 function terminateChild(proc: ChildProcess, eofMs: number, termMs: number): Promise<void> {
@@ -215,6 +217,45 @@ export class AgentManager {
     void this.runTurn(chatKey, chatType, [userId], prompt, onEvent, false);
     return 'started';
   }
+
+  /** 用户命令中止（/stop /new）：drop 该 chat 队列 + 定向杀在跑回合（代际检查）。
+   *  status 三态（plan 评审 R1-F4）：'stopped' 本次击杀 / 'stopping' 已在收割中（双击）/
+   *  'idle' 无在跑回合。清理与槽位释放仍归 runTurnInner（唯一所有者——abortDyingTurn 同契约）；
+   *  EOF 失败路径按 abortedProcs 哨兵发 turn_failed(TURN_ABORTED_ERROR)——中止终帧即 clean stream close（D4）。 */
+  abortChat(chatKey: string): { status: 'stopped' | 'stopping' | 'idle'; dropped: number } {
+    const q = this.queues.get(chatKey);
+    const dropped = q ? q.length : 0;
+    this.queues.delete(chatKey);
+    const turn = this.busy.get(chatKey);
+    if (!turn) return { status: 'idle', dropped };
+    // PR-review P2：终态派发在途（终帧 await 期间）不做 idle 误报——本代终帧即唯一回执
+    // （单回执不变量：任何终态路径都产生用户可见帧；/stop 在此窗口 SIGINT 死进程为 no-op）
+    if (turn.terminating) {
+      // 超时/ask 过期已在收割中的回合：补记中止哨兵——用户命令拥有终态文案
+      // （EOF 路径 abortedProcs 先判，压过 timedOutProcs/expiredAskProcs——code-review F2；
+      //   EOF 块已过哨兵判定的迟到补记是 no-op——终态事件不会重发）
+      abortedProcs.add(turn.proc);
+      return { status: 'stopping', dropped };
+    }
+    if (turn.deadline) clearTimeout(turn.deadline);
+    if (turn.askDeadline) clearTimeout(turn.askDeadline);
+    if (this.pendingAsks.get(chatKey)?.proc === turn.proc) this.pendingAsks.delete(chatKey);
+    turn.terminating = true;
+    abortedProcs.add(turn.proc);
+    try { turn.proc.kill('SIGINT'); } catch { /* 已退 */ }
+    void terminateChild(turn.proc, this.opts.reapEofMs, this.opts.reapTermMs);
+    return { status: 'stopped', dropped };
+  }
+
+  /** /new 的会话档闭锁（无档 no-op）——下一条消息 resumable() 即 fresh。 */
+  resetSession(chatKey: string): void {
+    this.deps.sessions.close(chatKey);
+  }
+
+  /** /status 数据面（D6）。 */
+  inFlightCount(): number { return this.busy.size; }
+
+  activeSessionCount(): { active: number; corrupt: number } { return this.deps.sessions.listActive(); }
 
   /** 数字/自由文本作答：写 control_response 回仍在运行的进程（写完成回调确认——P2）。
    *  作答者（群内可为非发起人——D2）计入本回合 initiators（R3-F2）；已达每用户帽的作答者
@@ -512,7 +553,10 @@ export class AgentManager {
     // 超时哨兵优先；spawn 失败（ENOENT）单独可识别。
     if (!turnFinished) {
       hooks.markFinished(); // pr-review P4：EOF 失败路径也是终态——回调抛错不得触发重复终态
-      if (expiredAskProcs.has(proc)) {
+      if (abortedProcs.has(proc)) {
+        // 用户命令中止（D4）：中止终帧即 /stop 的 clean stream close——先于其他哨兵判定
+        await onEvent({ type: 'turn_failed', chatKey, error: TURN_ABORTED_ERROR });
+      } else if (expiredAskProcs.has(proc)) {
         // ask 过期击杀（code-review C2）：不发通用失败——过期语义由 ask_expired 承载
         await onEvent({ type: 'ask_expired', chatKey });
       } else if (timedOutProcs.has(proc)) {

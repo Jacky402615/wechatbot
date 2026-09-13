@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AgentManager, TURN_TIMEOUT_ERROR, type AgentEvent } from '../../src/agent/manager';
+import { AgentManager, TURN_TIMEOUT_ERROR, TURN_ABORTED_ERROR, type AgentEvent } from '../../src/agent/manager';
 import { SessionStore } from '../../src/agent/session-store';
 import { BotLogger } from '../../src/logger';
 
@@ -396,5 +396,75 @@ test('并发作答单认领：同一 tick 两个作答 ⇒ 恰一个 control_res
   await flush(600);
   const responses = stdinLog(stateDir).filter((l) => l.type === 'control_response');
   expect(responses.length).toBe(1); // 恰一份 control_response
+  await manager.closeAll();
+});
+
+test('W3 abortChat：在跑回合被杀，EOF 路径发 turn_failed(TURN_ABORTED_ERROR)，槽位释放、进程死；双击第二击 = stopping', async () => {
+  const { stateDir, manager } = makeManager('no-output'); // 永不产出——等被杀
+  const events: AgentEvent[] = [];
+  manager.submit('single:u1', 'single', 'u1', 'm1', (ev) => { events.push(ev); });
+  await flush(200); // 等子进程起跑
+  const pid = argvLog(stateDir).at(-1)!.pid;
+  const r = manager.abortChat('single:u1');
+  expect(r.status).toBe('stopped');
+  expect(manager.abortChat('single:u1').status).toBe('stopping'); // 双击——中止中，非 idle
+  await flush(800);
+  expect(events.some((e) => e.type === 'turn_failed' && e.error === TURN_ABORTED_ERROR)).toBe(true);
+  expect(manager.inFlightCount()).toBe(0);
+  expect(manager.abortChat('single:u1').status).toBe('idle'); // 终局后才是 idle
+  await assertPidsDead(stateDir, [pid]);
+  await manager.closeAll();
+});
+
+test('W3 abortChat：排队消息一并清空（dropped 计数）', async () => {
+  const { manager } = makeManager('no-output');
+  manager.submit('single:u1', 'single', 'u1', 'm1', () => {}); // 占住 chat
+  manager.submit('single:u1', 'single', 'u1', 'm2', () => {}); // 排队
+  const r = manager.abortChat('single:u1');
+  expect(r.status).toBe('stopped');
+  expect(r.dropped).toBe(1);
+  await flush(800);
+  await manager.closeAll();
+});
+
+test('W3 abortChat：pending ask 中的回合一并中止（不发 ask_expired、不发通用失败）', async () => {
+  const { manager } = makeManager('ask');
+  const events: AgentEvent[] = [];
+  manager.submit('single:u1', 'single', 'u1', 'm1', (ev) => { events.push(ev); });
+  await new Promise((r) => setTimeout(r, 500)); // 等 ask 到达
+  expect(manager.hasPendingAsk('single:u1')).toBe(true);
+  const r = manager.abortChat('single:u1');
+  expect(r.status).toBe('stopped');
+  await flush(800);
+  expect(manager.hasPendingAsk('single:u1')).toBe(false);
+  expect(events.some((e) => e.type === 'turn_failed' && e.error === TURN_ABORTED_ERROR)).toBe(true);
+  expect(events.some((e) => e.type === 'ask_expired')).toBe(false);
+  await manager.closeAll();
+});
+
+test('W3 resetSession / activeSessionCount / listActive：闭档后活跃数归零', async () => {
+  const { manager, sessions } = makeManager('happy');
+  expect(manager.activeSessionCount()).toEqual({ active: 0, corrupt: 0 });
+  manager.submit('single:u1', 'single', 'u1', 'm1', () => {});
+  await flush();
+  expect(manager.activeSessionCount()).toEqual({ active: 1, corrupt: 0 });
+  expect(sessions.listActive()).toEqual({ active: 1, corrupt: 0 });
+  manager.resetSession('single:u1');
+  expect(manager.activeSessionCount()).toEqual({ active: 0, corrupt: 0 });
+  await manager.closeAll();
+});
+
+test('W3 abortChat 与超时重叠（code-review F2）：timeout 已击杀的回合，用户中止接管终态文案', async () => {
+  const { stateDir, manager } = makeManager('ignore-signals', { turnTimeoutMs: 300 }); // 无视 SIGINT/SIGTERM——SIGKILL 才死，收割窗口拉长
+  const events: AgentEvent[] = [];
+  manager.submit('single:u1', 'single', 'u1', 'm1', (ev) => { events.push(ev); });
+  await new Promise((r) => setTimeout(r, 500)); // timeout 已 SIGINT + timedOutProcs 哨兵在案（子进程仍活——EOF 未到）
+  // 实测时序：超时路径不置 terminating（runTurnInner 清理段才置）⇒ abortChat 走 'stopped'；
+  // 无论走哪条分支，中止哨兵都接管 EOF 终态判定
+  const r = manager.abortChat('single:u1');
+  expect(r.status).toBe('stopped');
+  await flush(4_000);                // 收割梯子升级 SIGKILL → EOF 路径
+  expect(events.some((e) => e.type === 'turn_failed' && e.error === TURN_ABORTED_ERROR)).toBe(true);
+  expect(events.some((e) => e.type === 'turn_failed' && e.error === TURN_TIMEOUT_ERROR)).toBe(false); // 中止哨兵压过超时哨兵
   await manager.closeAll();
 });

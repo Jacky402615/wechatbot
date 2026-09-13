@@ -113,3 +113,17 @@ test('maxConcurrentTurns：非整数/<=0 被拒', () => {
   set(-1);   expect(() => loadWorkspace(ws)).toThrow(/maxConcurrentTurns/);
   set(2.5);  expect(() => loadWorkspace(ws)).toThrow(/maxConcurrentTurns/);
 });
+
+test('groupMentionName：合法字符串 trim 后生效；非字符串/空白 ⇒ ConfigError；缺省 undefined（W3）', () => {
+  const ws = freshWs();
+  loadWorkspace(ws);
+  const setCfg = (v: unknown) => writeFileSync(join(ws, '.bot', 'config.json'), JSON.stringify({ logLevel: 'info', groupMentionName: v }));
+  setCfg(' 小助手 ');
+  expect(loadWorkspace(ws).config.groupMentionName).toBe('小助手');
+  setCfg(undefined as unknown);
+  expect(loadWorkspace(ws).config.groupMentionName).toBeUndefined();
+  setCfg(1);
+  expect(() => loadWorkspace(ws)).toThrow(/groupMentionName/);
+  setCfg('  ');
+  expect(() => loadWorkspace(ws)).toThrow(/groupMentionName/);
+});

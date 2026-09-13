@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Gateway } from '../../src/gateway';
@@ -7,6 +7,7 @@ import { AgentHandler } from '../../src/handlers/agent';
 import { AgentManager } from '../../src/agent/manager';
 import { SessionStore } from '../../src/agent/session-store';
 import { BotLogger } from '../../src/logger';
+import { AccessGate } from '../../src/access';
 import type { TransportEvent, TransportHandler, WeComTransport } from '../../src/transport/types';
 
 class FakeTransport implements WeComTransport {
@@ -15,6 +16,8 @@ class FakeTransport implements WeComTransport {
   async start(): Promise<void> { this.emit({ type: 'authenticated' }); }
   async stop(): Promise<void> { this.emit({ type: 'disconnected', reason: 'stopped' }); }
   async replyStream(): Promise<void> { await this.replyStreamImpl(); }
+  async replyWelcome(): Promise<void> {}
+  connectionStatus(): { connected: boolean; authenticated: boolean } { return { connected: true, authenticated: true }; }
   isConnected(): boolean { return true; }
   on(handler: TransportHandler): void { this.handlers.push(handler); }
   emit(event: TransportEvent): void { for (const h of this.handlers) h(event); }
@@ -54,7 +57,9 @@ test('agent 回复失败传播进 Gateway 状态（lastError 持久化，不吞�
     options: { claudeCommand: { command: process.execPath, argsPrefix: [join(import.meta.dir, '..', 'helpers', 'fake-claude.mjs')] } },
   });
   let gatewayRef: Gateway | null = null;
-  const handler = new AgentHandler({ transport, logger, manager, workspace: dir }, {
+  writeFileSync(join(dir, 'access.json'), JSON.stringify({ admin: ['u1'] }) + '\n'); // W3 基线
+  const access = new AccessGate(join(dir, 'access.json'));
+  const handler = new AgentHandler({ transport, logger, manager, workspace: dir, access }, {
     onReplyError: (e) => gatewayRef?.recordAgentError(e), // 与 createGateway 生产接线同构（R2-F5）
   });
   const gateway = new Gateway({ transport, logger, botDir: dir, handler });

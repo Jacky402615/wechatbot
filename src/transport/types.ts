@@ -10,6 +10,23 @@ export interface InboundTextMessage {
   replyTo: ReplyRef;
 }
 
+/** enter_chat 事件（用户当日首次进入单聊——5s 欢迎窗由此起算，D5） */
+export interface InboundEnterChat {
+  msgid: string;
+  chatType: 'single' | 'group';
+  chatId?: string;
+  userId: string;
+  replyTo: ReplyRef;
+}
+
+/** feedback_event 事件（仅日志面，D5） */
+export interface InboundFeedbackEvent {
+  msgid: string;
+  chatType: 'single' | 'group';
+  chatId?: string;
+  userId: string;
+}
+
 export type TransportEvent =
   | { type: 'connected' }
   | { type: 'authenticated' }
@@ -18,7 +35,9 @@ export type TransportEvent =
   | { type: 'error'; error: Error }
   | { type: 'fatal'; error: Error }
   | { type: 'kicked' }
-  | { type: 'textMessage'; message: InboundTextMessage };
+  | { type: 'textMessage'; message: InboundTextMessage }
+  | { type: 'enterChat'; message: InboundEnterChat }
+  | { type: 'feedbackEvent'; message: InboundFeedbackEvent };
 
 export type TransportHandler = (event: TransportEvent) => void;
 
@@ -26,7 +45,11 @@ export interface WeComTransport {
   start(): Promise<void>;          // 认证成功时 resolve；致命错误 reject
   stop(): Promise<void>;
   replyStream(ref: ReplyRef, streamId: string, content: string, finish: boolean): Promise<void>;
+  /** enter_chat 欢迎语（aibot_respond_welcome_msg 通道，5s 窗内调用，D5） */
+  replyWelcome(ref: ReplyRef, content: string): Promise<void>;
   isConnected(): boolean;
+  /** /status 数据面（D6/plan 评审 R1-F3）：连接双字段 */
+  connectionStatus(): { connected: boolean; authenticated: boolean };
   on(handler: TransportHandler): void;
 }
 
