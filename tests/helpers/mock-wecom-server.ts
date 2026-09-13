@@ -94,6 +94,21 @@ export class MockWecomServer {
     });
   }
 
+  /** W4：媒体帧（msgtype=kind，载荷 {url?, aeskey?}——均可省略以模拟协议异常帧；voice 的 url/aeskey 平台协议字段——.d.ts 未声明，运行时防御式读取同真实平台） */
+  pushMediaMessage(reqId: string, msg: { msgid: string; userId: string; kind: 'image' | 'file' | 'voice' | 'video'; url?: string; aeskey?: string; chatType?: 'single' | 'group'; chatid?: string }): void {
+    this.broadcast({
+      cmd: 'aibot_msg_callback',
+      headers: { req_id: reqId },
+      body: {
+        msgid: msg.msgid, aibotid: 'bot-mock', chattype: msg.chatType ?? 'single',
+        ...(msg.chatType === 'group' && msg.chatid ? { chatid: msg.chatid } : {}),
+        from: { userid: msg.userId }, msgtype: msg.kind,
+        [msg.kind]: { ...(msg.url ? { url: msg.url } : {}), ...(msg.aeskey ? { aeskey: msg.aeskey } : {}) },
+        create_time: Math.floor(Date.now() / 1000),
+      },
+    });
+  }
+
   kick(): void {
     this.broadcast({
       cmd: 'aibot_event_callback',

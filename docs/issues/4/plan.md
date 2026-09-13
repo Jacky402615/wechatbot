@@ -308,7 +308,7 @@ export class MediaStore {
   - Mock: `pushMediaMessage(reqId, msg: { msgid; userId; kind: MediaKind; url?; aeskey?; chatType?; chatid? })`
   - FakeTransport 桩：`downloads: Array<{ url: string; aeskey?: string }>` + `downloadImpl: (url, aeskey?) => Promise<{buffer, filename?}>`
 
-- [ ] **Step 1: Write the failing test**（追加进 `tests/integration/transport.test.ts`，沿用既有 transport 装配模式；import 区补 `import type { InboundMediaMessage } from '../../src/transport/types';`）
+- [x] **Step 1: Write the failing test**（追加进 `tests/integration/transport.test.ts`，沿用既有 transport 装配模式；import 区补 `import type { InboundMediaMessage } from '../../src/transport/types';`）
 
 ```ts
 test('W4：四类媒体帧映射 mediaMessage 事件；群媒体忽略；缺 url 帧仍上抛（不静默丢）；downloadFile 端口守卫', async () => {
@@ -340,8 +340,8 @@ test('W4：四类媒体帧映射 mediaMessage 事件；群媒体忽略；缺 url
 });
 ```
 
-- [ ] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/integration/transport.test.ts` Expected: FAIL（`pushMediaMessage` 不是函数 / `mediaMessage` 类型不存在——typecheck 亦红）
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/integration/transport.test.ts` Expected: FAIL（`pushMediaMessage` 不是函数 / `mediaMessage` 类型不存在——typecheck 亦红）
+- [x] **Step 3: Write the minimal implementation**
 
 `src/transport/types.ts`——import 区补 `import type { MediaKind } from '../media'; export type { MediaKind };`（类型单向依赖：transport ← media），`InboundFeedbackEvent` 之后追加：
 
@@ -442,8 +442,8 @@ export interface InboundMediaMessage {
   async downloadFile(url: string, aeskey?: string) { this.downloads.push({ url, aeskey }); return this.downloadImpl(url, aeskey); }
 ```
 
-- [ ] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/integration/transport.test.ts tests/unit/agent-handler.test.ts && bun run typecheck` Expected: PASS（fake 迁移后既有用例不回归）
-- [ ] **Step 5: Commit** — `git add src/transport/types.ts src/transport/wecom-sdk-adapter.ts tests/helpers/mock-wecom-server.ts tests/unit/agent-handler.test.ts tests/integration/transport.test.ts && git commit -m "W4: transport mediaMessage event (unified kind union), SDK downloadFile port, mock pushMediaMessage + fake migration"`
+- [x] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/integration/transport.test.ts tests/unit/agent-handler.test.ts && bun run typecheck` Expected: PASS（fake 迁移后既有用例不回归）
+- [x] **Step 5: Commit** — `git add src/transport/types.ts src/transport/wecom-sdk-adapter.ts tests/helpers/mock-wecom-server.ts tests/unit/agent-handler.test.ts tests/integration/transport.test.ts && git commit -m "W4: transport mediaMessage event (unified kind union), SDK downloadFile port, mock pushMediaMessage + fake migration"`
 
 ## Checkpoint A（Tasks 1–2 后）
 

@@ -21,6 +21,10 @@ class FakeTransport implements WeComTransport {
     this.sent.push({ streamId, content, finish });
     await this.replyImpl(content, finish);
   }
+  downloads: Array<{ url: string; aeskey?: string }> = [];
+  downloadImpl: (url: string, aeskey?: string) => Promise<{ buffer: Buffer; filename?: string }> =
+    async () => ({ buffer: Buffer.alloc(0) });
+  async downloadFile(url: string, aeskey?: string) { this.downloads.push({ url, aeskey }); return this.downloadImpl(url, aeskey); }
   async replyWelcome(ref: ReplyRef, content: string) { this.welcomes.push({ reqId: ref.reqId, content }); await this.welcomeImpl(content); }
   connectionStatus() { return { connected: true, authenticated: true }; }
 }
