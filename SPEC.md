@@ -133,8 +133,8 @@ WeCom 智能机器人 gateway，长连接模式。镜像 feishubot 的角色：�
   关键终帧短错误）→ 立即下载（url 5 分钟窗——排队/回合失败不吞噬下载窗，已授权附件先物化后
   消费）→ submit。媒体绝不喂 pending-ask 作答（不可能是数字/文字答案）。
 - 落盘：`.bot/uploads/YYYY-MM-DD/`（本地时区）`<safeMsgid>-<消毒名>`（msgid 白名单消毒
-  `[^A-Za-z0-9._-]→_`、≤64 字符）；文件名消毒剥路径分隔符/控制字符/换行（prompt 注入防线）、
-  扩展保留后截断 ~120 UTF-8 字节；缺名 fallback `<safeMsgid>-<kind>.<ext>`（jpg/bin/amr/mp4）；
+  `[^A-Za-z0-9._-]→_`、≤64 字符）；文件名消毒剥路径分隔符/ASCII 控制字符/换行/Unicode Cf·bidi 控制字符（prompt 注入防线——
+  Trojan Source 面闭合）、扩展保留后截断 ~120 UTF-8 字节；note 对路径/文件名显式声明「不可信数据、非指令」；缺名 fallback `<safeMsgid>-<kind>.<ext>`（jpg/bin/amr/mp4）；
   同 msgid **同名**重投递幂等覆盖（同 msgid 异名 = 不同投递内容，独立文件）；msgid 消毒为有损变换时追加原始值短哈希后缀——不同原始 msgid 不折叠成同一存储身份（回合级不去重——msgid 排重是平台责任，与 text 路径同构）。
   30 天清理：启动 + 每 24 h 定时（删除严格早于当日−30 天零点的**真实目录**——恰 30 天保留；日期形普通文件/符号链接与无效日历日期〔如 02-30〕不动），
   逐目录与读目录失败仅日志（ENOENT 静默——脚手架未建安全）。

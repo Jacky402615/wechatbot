@@ -19,7 +19,7 @@
 - 分派序（W3 序的媒体变体，D4）：群帧守卫（群媒体 debug 忽略——平台 single-chat only）→ access gate（非 admin/approved ⇒ 拒绝文案，**零下载**）→ `expireStaleAsk` → **不喂 `answerPendingAsk`**（媒体不作答）→ 下载 → submit（busy 排队，批量回合合流）。
 - 文件名消毒（D6）：剥路径分隔符/控制字符/换行（prompt 注入防线）、扩展保留后截断 ~120 UTF-8 字节、`<safeMsgid>-` 前缀（**msgid 本身也是平台输入——字符集白名单 `[^A-Za-z0-9._-]→_`、≤64 字符**，碰撞安全 + 同 msgid 重投递幂等覆盖）、缺名 fallback `<safeMsgid>-<kind>.<ext>`（jpg/bin/amr/mp4）；日期目录取本地时区。
 - 失败面（D8）：**缺 url 或缺 aeskey 的媒体帧（协议异常）⇒ 与下载失败同面**——`criticalFinal` 短错误 + ERROR 日志 + 不下载不 spawn（长连接模式媒体恒加密，无 key 的密文不得当可解析附件落盘）；下载/解密 throw ⇒ 同 `criticalFinal` 路径；oversize（>100 MB，SDK 全量缓冲后判定）/空 buffer/落盘失败 ⇒ 降级 note 入 prompt + 日志，回合照跑；任何路径不得静默丢。
-- 回合级不去重（与 text 路径一致）：msgid 排重是平台责任（`aibot_msg_callback` 协议「唯一性标志，用于事件排重」）；文件级幂等覆盖已保住磁盘不重复——同 msgid 重投递产生重复回合是**接受并文档化的既有行为**（W1–W3 text 同构）。
+- 回合级不去重（与 text 路径一致）：msgid 排重是平台责任（`aibot_msg_callback` 协议「唯一性标志，用于事件排重」）；文件级幂等覆盖为**同 msgid 同名**语义（同名重投递覆盖同一文件；同 msgid 异名 = 不同投递内容，独立文件——code-review C-F1 裁定，保 AC2 可读文件名）——重投递产生重复回合亦是**接受并文档化的既有行为**（W1–W3 text 同构）。
 - 30 天清理（D9）：启动 + 每 24 h `unref()` 定时；逐目录 try/catch，失败仅日志；非日期形条目不动。
 - 忽略 SDK `VoiceContent.content`（ASR）——issue 判 voice 不可解析，转写 v2+（D7）；群媒体帧与 `message.mixed` 可见地忽略（debug 日志；mixed = known gap + follow-up issue，D10）。
 - 回归红线：W1–W3 全量测试保持绿（`bun test` 全量）；`WeComTransport` 接口扩员同 commit 迁移 `FakeTransport`（W3 R2-F2 教训）。
