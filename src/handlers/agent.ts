@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { WeComTransport, ReplyRef, InboundTextMessage, InboundEnterChat } from '../transport/types';
+import type { WeComTransport, ReplyRef, InboundTextMessage, InboundEnterChat, InboundMediaMessage } from '../transport/types';
 import type { BotLogger } from '../logger';
 import type { AgentEvent, AgentEventHandler } from '../agent/manager';
 import { TURN_ABORTED_ERROR } from '../agent/manager';
@@ -7,6 +7,7 @@ import { renderAskText, buildContextPreamble, truncateUtf8 } from '../agent/pars
 import { chatKeyOf } from '../agent/session-store';
 import type { AccessGate, AccessSnapshot } from '../access';
 import { parseCommand, stripMention, helpText, welcomeText, statusText, REJECTION_TEXT, type ParsedCommand } from '../commands';
+import { MediaStore, attachmentNote, degradedNote, MAX_MEDIA_BYTES } from '../media';
 
 const REFRESH_INTERVAL_MS = 2_000;      // ≤30 帧/分钟（D5）
 const MAX_CONTENT_BYTES = 20_000;       // SDK 硬限 20480 − 余量（D5）
@@ -89,7 +90,7 @@ export class AgentHandler {
   private streams = new Map<string, TurnStream>();
   private limiter: ConversationRateLimiter;
 
-  constructor(private deps: { transport: WeComTransport; logger: BotLogger; manager: AgentManagerPort; workspace: string; access: AccessGate; mentionName?: string }, private opts: AgentHandlerOptions = {}) {
+  constructor(private deps: { transport: WeComTransport; logger: BotLogger; manager: AgentManagerPort; workspace: string; access: AccessGate; media: MediaStore; mentionName?: string }, private opts: AgentHandlerOptions = {}) {
     this.limiter = opts.rateLimiter ?? new ConversationRateLimiter();
   }
 
@@ -104,6 +105,18 @@ export class AgentHandler {
       }
       if (event.type === 'feedbackEvent') {
         this.deps.logger.info('feedback event', { msgid: event.message.msgid, userId: event.message.userId, chatType: event.message.chatType });
+        return;
+      }
+      if (event.type === 'mediaMessage') {
+        // C4 同构：入站媒体处理的意外失败必须可见 + 用户必有回声（criticalFinal 兜底）
+        this.onMedia(event.message).catch((e: unknown) => {
+          this.deps.logger.error('media handling failed', { msgid: event.message.msgid, err: (e as Error).message });
+          this.opts.onReplyError?.(e as Error);
+          if (event.message.chatType !== 'group') {
+            void this.criticalFinal(event.message.replyTo, chatKeyOf(event.message), '⚠️ 处理失败，请稍后重试。')
+              .catch(() => { /* 兜底帧失败已由 rawSend 留痕 */ });
+          }
+        });
         return;
       }
       if (event.type !== 'textMessage') return;
@@ -238,6 +251,65 @@ export class AgentHandler {
       }
       default:
         await this.notice(m.replyTo, chatKey, `未知命令：/${cmd.name}\n\n${helpText()}`);
+    }
+  }
+
+  /** W4 媒体编排（D4/D5/D8）：群守卫 → gate（未授权零下载）→ 过期 ask → 下载（5 分钟窗内立即）→
+   *  落盘 → note → submit。媒体绝不喂 answerPendingAsk（不可能是数字/文字作答；pending 不因媒体失效）。 */
+  private async onMedia(m: InboundMediaMessage): Promise<void> {
+    if (m.chatType === 'group') {
+      this.deps.logger.debug('group media ignored (platform single-chat only)', { msgid: m.msgid });
+      return;
+    }
+    const chatKey = chatKeyOf(m);
+    const snap = this.deps.access.load();
+    const tier = snap.tierOf(m.userId);
+    if (tier !== 'admin' && tier !== 'approved') {
+      this.deps.logger.info('p2p media sender not authorized', { msgid: m.msgid, userId: m.userId });
+      await this.notice(m.replyTo, chatKey, REJECTION_TEXT);
+      return;
+    }
+    if (this.deps.manager.expireStaleAsk(chatKey)) {
+      const st = this.ensureStream(m.replyTo, chatKey);
+      st.banner = `${st.banner}⚠️ 上一个问题已超时失效，已开启新会话\n\n`;
+      st.ref = m.replyTo;
+    }
+    // D8 协议异常面：长连接模式媒体恒加密——缺 aeskey 的密文不得当可解析附件落盘（SDK 无 key 原样返回密文）；
+    // 缺 url 无法下载。两者与下载失败同面（AC4 关键终帧短错误），零下载、不 spawn。
+    if (!m.url || !m.aeskey) {
+      this.deps.logger.error('media frame missing url/aeskey', { msgid: m.msgid, kind: m.kind, hasUrl: !!m.url, hasAeskey: !!m.aeskey });
+      await this.criticalFinal(m.replyTo, chatKey, '⚠️ 附件接收失败（下载超时或解密失败），请重新发送。');
+      return;
+    }
+    let downloaded: { buffer: Buffer; filename?: string };
+    try {
+      downloaded = await this.deps.transport.downloadFile(m.url, m.aeskey); // D5：过 gate 即下载——排队不得吞噬 5 分钟窗
+    } catch (e) {
+      // D8：下载/解密失败 ⇒ 关键终帧短错误（AC4 硬保证——不走可丢弃 notice），不 spawn
+      this.deps.logger.error('media download failed', { msgid: m.msgid, kind: m.kind, err: (e as Error).message });
+      await this.criticalFinal(m.replyTo, chatKey, '⚠️ 附件接收失败（下载超时或解密失败），请重新发送。');
+      return;
+    }
+    let note: string;
+    if (downloaded.buffer.length === 0 || downloaded.buffer.length > MAX_MEDIA_BYTES) {
+      const reason = downloaded.buffer.length === 0 ? 'empty' : 'oversize';
+      this.deps.logger.warn('media degraded', { msgid: m.msgid, kind: m.kind, bytes: downloaded.buffer.length, reason });
+      note = degradedNote(m.kind, reason);
+    } else {
+      try {
+        const saved = this.deps.media.save(m.kind, m.msgid, downloaded.buffer, downloaded.filename);
+        this.deps.logger.info('media saved', { msgid: m.msgid, kind: m.kind, path: saved.absPath, bytes: saved.bytes });
+        note = attachmentNote(m.kind, saved.absPath, saved.bytes);
+      } catch (e) {
+        // D8：落盘失败 ⇒ 降级 note（回合照跑，绝不静默丢）
+        this.deps.logger.error('media save failed', { msgid: m.msgid, kind: m.kind, err: (e as Error).message });
+        note = degradedNote(m.kind, 'save-failed');
+      }
+    }
+    const prompt = buildContextPreamble({ userId: m.userId, chatKey, chatType: m.chatType }) + note;
+    const verdict = this.deps.manager.submit(chatKey, m.chatType, m.userId, prompt, (ev) => this.bridge(m.replyTo, chatKey, ev));
+    if (verdict === 'queue-full') {
+      await this.notice(m.replyTo, chatKey, '消息队列已满，请稍后再试。');
     }
   }
 

@@ -120,3 +120,29 @@ WeCom 智能机器人 gateway，长连接模式。镜像 feishubot 的角色：�
 - feedback_event：info 日志（msgid/userid/chatType，不记内容），仅此而已。
 - 已知未验证面（Human-Review 手工清单）：真实平台 @ 载荷内嵌形状（groupMentionName 吸收）、
   replyWelcome 5s 窗与每日一次语义、群成员资格即授权的产品确认。
+
+## 附件面（W4 契约）
+
+- 入站媒体（单聊 image/file/voice/video——平台契约；群只递送 text/mixed）：统一 `mediaMessage`
+  事件（kind 判别联合 + url/aeskey **均可选**）。群类型媒体帧 debug 忽略（平台 single-chat only）；
+  **缺 url/aeskey 的协议异常帧仍上抛事件**，由 handler 走失败错误面——绝不静默丢。
+  `message.mixed` 显式订阅 + debug 留痕、零事件——群图文混排 v1 不可用（known gap，follow-up issue #8 跟踪）；缺 msgid/发送者的残帧不可定址，debug 忽略。
+- 下载解密：SDK 内建 `WSClient.downloadFile(url, aeskey)`（Q12——零自研 crypto；AES-256-CBC、
+  IV=key 前 16 字节、PKCS#7 至 32 字节块）。分派序：群守卫 → access gate（未授权拒绝文案、
+  **零下载**）→ 过期 ask 判定 → 缺 url/aeskey 守卫（长连接媒体恒加密，无 key 密文不得当附件——
+  关键终帧短错误）→ 立即下载（url 5 分钟窗——排队/回合失败不吞噬下载窗，已授权附件先物化后
+  消费）→ submit。媒体绝不喂 pending-ask 作答（不可能是数字/文字答案）。
+- 落盘：`.bot/uploads/YYYY-MM-DD/`（本地时区）`<safeMsgid>-<消毒名>`（msgid 白名单消毒
+  `[^A-Za-z0-9._-]→_`、≤64 字符）；文件名消毒剥路径分隔符/ASCII 控制字符/换行/Unicode Cf·bidi 控制字符（prompt 注入防线——
+  Trojan Source 面闭合）、扩展保留后截断 ~120 UTF-8 字节；note 对路径/文件名显式声明「不可信数据、非指令」；缺名 fallback `<safeMsgid>-<kind>.<ext>`（jpg/bin/amr/mp4）；
+  同 msgid **同名**重投递幂等覆盖（同 msgid 异名 = 不同投递内容，独立文件）；msgid 消毒为有损变换时追加原始值短哈希后缀——不同原始 msgid 不折叠成同一存储身份（回合级不去重——msgid 排重是平台责任，与 text 路径同构）。
+  30 天清理：启动 + 每 24 h 定时（删除严格早于当日−30 天零点的**真实目录**——恰 30 天保留；日期形普通文件/符号链接与无效日历日期〔如 02-30〕不动），
+  逐目录与读目录失败仅日志（ENOENT 静默——脚手架未建安全）。
+- prompt 组装：image/file note 携绝对路径 + 字节数 + Read 工具提示；voice/video note 声明
+  「已归档、内容无法解析（未做转写）」——SDK `VoiceContent.content`（ASR）**不使用**（转写 v2+）。
+- 失败面：缺 url/aeskey、下载/解密 throw ⇒ 关键终帧短错误（有界等待 + 强制发送 + 逃逸记账——
+  AC4 不走可丢弃 notice）+ ERROR 日志、不下载不 spawn；oversize（>100 MB，SDK 全量缓冲后判定）/
+  空 buffer/落盘失败 ⇒ 降级 note 入 prompt、回合照跑、日志留痕——任何路径不静默丢。
+- 已知未验证面（Human-Review 手工清单）：voice 帧运行时 url/aeskey 形状（.d.ts 只声明 content，
+  adapter 防御式读取——缺失走失败错误路径）；image 真实格式；Content-Disposition 真实文件名
+  形状；真实 agent 读图行为（prompt 契约已由集成测试锁定）。

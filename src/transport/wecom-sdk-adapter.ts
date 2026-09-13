@@ -1,9 +1,9 @@
 import { WSClient, WSAuthFailureError, type WsFrame, type WsFrameHeaders } from '@wecom/aibot-node-sdk';
 import type {
-  InboundEnterChat, InboundFeedbackEvent, InboundTextMessage, ReplyRef, TransportEvent, TransportHandler, TransportOptions, WeComTransport,
+  InboundEnterChat, InboundFeedbackEvent, InboundMediaMessage, InboundTextMessage, ReplyRef, TransportEvent, TransportHandler, TransportOptions, WeComTransport,
 } from './types';
 
-export type { InboundEnterChat, InboundFeedbackEvent, InboundTextMessage, ReplyRef, TransportEvent, TransportHandler, TransportOptions, WeComTransport };
+export type { InboundEnterChat, InboundFeedbackEvent, InboundMediaMessage, InboundTextMessage, ReplyRef, TransportEvent, TransportHandler, TransportOptions, WeComTransport };
 
 const START_TIMEOUT_MS = 30_000;
 const DEFAULT_RESUBSCRIBE_DELAY_MS = 5_000;
@@ -118,6 +118,47 @@ export class WecomSdkTransport implements WeComTransport {
           },
         });
       });
+      // W4：四类媒体统一映射（D1）；群媒体 debug 忽略（平台 single-chat only——D10 fail-safe）。
+      // 缺 url 的协议异常帧仍上抛（url 可选）——静默丢违反 never-silent-drop（D8 由 handler 收口错误面）。
+      // code-review C-F5：缺 msgid/发送者的残帧不可定址（msgid 是存储身份、userid 是会话键）——debug 忽略。
+      const MEDIA_KINDS = ['image', 'file', 'voice', 'video'] as const;
+      for (const kind of MEDIA_KINDS) {
+        client.on(`message.${kind}`, (frame: WsFrame) => {
+          const body = frame.body as unknown as {
+            msgid: string; chattype?: 'single' | 'group'; chatid?: string;
+            from: { userid: string };
+          } & Record<string, unknown>;
+          if ((body.chattype ?? 'single') === 'group') {
+            this.opts.logger?.debug?.(`group media (${kind}) ignored: ${body.msgid}`);
+            return;
+          }
+          if (!body.msgid || !body.from?.userid) {
+            this.opts.logger?.debug?.(`media frame without msgid/from ignored (${kind})`);
+            return;
+          }
+          const content = body[kind] as { url?: string; aeskey?: string } | undefined;
+          if (!content?.url) {
+            this.opts.logger?.debug?.(`media frame without url forwarded (protocol anomaly): ${body.msgid}`);
+          }
+          this.emit({
+            type: 'mediaMessage',
+            message: {
+              msgid: body.msgid,
+              chatType: 'single',
+              userId: body.from.userid,
+              kind,
+              ...(content?.url ? { url: content.url } : {}),
+              ...(content?.aeskey ? { aeskey: content.aeskey } : {}),
+              replyTo: refFromFrame(frame),
+            },
+          });
+        });
+      }
+      // W4（code-review C-F3）：mixed（群图文混排）v1 不支持——显式订阅 + debug 留痕（可见地忽略，D10）
+      client.on('message.mixed', (frame: WsFrame) => {
+        const body = frame.body as unknown as { msgid?: string; chatid?: string };
+        this.opts.logger?.debug?.(`mixed message not supported in v1 (group text+image): ${body?.msgid ?? '?'} chat=${body?.chatid ?? '?'}`);
+      });
       client.on('event.disconnected_event', () => {
         this.emit({ type: 'kicked' });
         // SDK 1.0.7 实测：被踢路径置 isManualClose=true，SDK 不会自动重连——
@@ -200,6 +241,11 @@ export class WecomSdkTransport implements WeComTransport {
       }
       throw new Error(`replyWelcome failed: ${String(e)}`);
     }
+  }
+
+  async downloadFile(url: string, aeskey?: string): Promise<{ buffer: Buffer; filename?: string }> {
+    if (!this.client) throw new Error('transport not started');
+    return this.client.downloadFile(url, aeskey); // SDK 内建下载+解密（Q12）
   }
 
   isConnected(): boolean {

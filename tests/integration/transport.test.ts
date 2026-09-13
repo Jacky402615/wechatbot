@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { WecomSdkTransport, type TransportEvent, type TransportHandler, type InboundEnterChat } from '../../src/transport/wecom-sdk-adapter';
+import { WecomSdkTransport, type TransportEvent, type TransportHandler, type InboundEnterChat, type InboundMediaMessage } from '../../src/transport/wecom-sdk-adapter';
 import { MockWecomServer } from '../helpers/mock-wecom-server';
 
 const FAST = { reconnectInterval: 50, heartbeatInterval: 200, requestTimeout: 2000, resubscribeDelayMs: 150 };
@@ -196,5 +196,55 @@ test('W3：enterChat/feedbackEvent 事件到达 handler；replyWelcome 走 aibot
   srv.welcomeErrcode = 0;
   await t.stop();
   expect(t.connectionStatus()).toEqual({ connected: false, authenticated: false });
+  await srv.stop();
+});
+
+test('W4：四类媒体帧映射 mediaMessage 事件；群媒体忽略；缺 url 帧仍上抛（不静默丢）；downloadFile 端口守卫', async () => {
+  const srv = new MockWecomServer();
+  const { url } = await srv.start();
+  const t = new WecomSdkTransport({ botId: 'b', secret: 's', wsUrl: url, ...FAST });
+  const rec = recorder();
+  t.on(rec.push);
+  await t.start();
+  for (const [i, kind] of ['image', 'file', 'voice', 'video'].entries()) {
+    srv.pushMediaMessage(`req-m${i}`, { msgid: `m${i}`, userId: 'u1', kind: kind as 'image', url: 'https://files.example/x', aeskey: 'a2V5' });
+  }
+  srv.pushMediaMessage('req-g1', { msgid: 'g1', userId: 'u1', kind: 'image', url: 'https://files.example/x', chatType: 'group', chatid: 'g1' });
+  srv.pushMediaMessage('req-n1', { msgid: 'n1', userId: 'u1', kind: 'voice' });           // 缺 url（voice .d.ts 形状）——仍上抛
+  await new Promise((r) => setTimeout(r, 300));
+  const media = rec.events.filter((e) => e.type === 'mediaMessage') as Array<{ type: 'mediaMessage'; message: InboundMediaMessage }>;
+  expect(media.length).toBe(5);                                            // 群媒体帧被 adapter 忽略（D10）；缺 url 帧不丢
+  expect(media.slice(0, 4).map((e) => e.message.kind)).toEqual(['image', 'file', 'voice', 'video']);
+  expect(media[0]!.message.userId).toBe('u1');
+  expect(media[0]!.message.url).toBe('https://files.example/x');
+  expect(media[0]!.message.aeskey).toBe('a2V5');
+  expect(media[0]!.message.replyTo.reqId).toBe('req-m0');
+  const noUrl = media[4]!.message;
+  expect(noUrl.kind).toBe('voice');
+  expect(noUrl.url).toBeUndefined();                                       // handler 侧走 D8 错误面
+  await t.stop();
+  await expect(t.downloadFile('https://files.example/x', 'a2V5')).rejects.toThrow('transport not started'); // 端口存在 + 未启动守卫（真下载由 media.test.ts 集成覆盖——不在单测打真网络）
+  await srv.stop();
+});
+
+test('W4 code-review C-F3/C-F5：mixed 帧可见忽略（debug 留痕、零事件）；缺 msgid/from 的残帧忽略', async () => {
+  const srv = new MockWecomServer();
+  const { url } = await srv.start();
+  const debugs: string[] = [];
+  const t = new WecomSdkTransport({
+    botId: 'b', secret: 's', wsUrl: url, ...FAST,
+    logger: { debug: (m: string) => debugs.push(m), info: () => {}, warn: () => {}, error: () => {} },
+  });
+  const rec = recorder();
+  t.on(rec.push);
+  await t.start();
+  srv.pushMixedMessage('req-mx1', { msgid: 'mx1', userId: 'u1', chatid: 'g1' });
+  srv.pushRaw({ cmd: "aibot_msg_callback", headers: { req_id: 'req-broken' }, body: { msgid: undefined, aibotid: 'bot-mock', chattype: 'single', from: { userid: 'u1' }, msgtype: 'image', image: { url: 'https://f/x', aeskey: 'k' } } });
+  srv.pushRaw({ cmd: "aibot_msg_callback", headers: { req_id: 'req-broken2' }, body: { msgid: 'nb2', aibotid: 'bot-mock', chattype: 'single', msgtype: 'image', image: { url: 'https://f/x', aeskey: 'k' } } });
+  await new Promise((r) => setTimeout(r, 300));
+  expect(rec.events.filter((e) => e.type === 'mediaMessage').length).toBe(0);           // mixed 零事件 + 残帧零事件
+  expect(debugs.some((m) => m.includes('mixed message not supported'))).toBe(true);    // mixed 可见忽略（debug 留痕）
+  expect(debugs.some((m) => m.includes('without msgid/from ignored'))).toBe(true);     // 残帧守卫生效
+  await t.stop();
   await srv.stop();
 });

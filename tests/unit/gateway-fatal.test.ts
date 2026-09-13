@@ -8,6 +8,7 @@ import { AgentManager } from '../../src/agent/manager';
 import { SessionStore } from '../../src/agent/session-store';
 import { BotLogger } from '../../src/logger';
 import { AccessGate } from '../../src/access';
+import { MediaStore } from '../../src/media';
 import type { TransportEvent, TransportHandler, WeComTransport } from '../../src/transport/types';
 
 class FakeTransport implements WeComTransport {
@@ -17,6 +18,7 @@ class FakeTransport implements WeComTransport {
   async stop(): Promise<void> { this.emit({ type: 'disconnected', reason: 'stopped' }); }
   async replyStream(): Promise<void> { await this.replyStreamImpl(); }
   async replyWelcome(): Promise<void> {}
+  async downloadFile(): Promise<{ buffer: Buffer; filename?: string }> { return { buffer: Buffer.alloc(0) } }
   connectionStatus(): { connected: boolean; authenticated: boolean } { return { connected: true, authenticated: true }; }
   isConnected(): boolean { return true; }
   on(handler: TransportHandler): void { this.handlers.push(handler); }
@@ -59,7 +61,7 @@ test('agent 回复失败传播进 Gateway 状态（lastError 持久化，不吞�
   let gatewayRef: Gateway | null = null;
   writeFileSync(join(dir, 'access.json'), JSON.stringify({ admin: ['u1'] }) + '\n'); // W3 基线
   const access = new AccessGate(join(dir, 'access.json'));
-  const handler = new AgentHandler({ transport, logger, manager, workspace: dir, access }, {
+  const handler = new AgentHandler({ transport, logger, manager, workspace: dir, access, media: new MediaStore(join(dir, 'uploads')) }, {
     onReplyError: (e) => gatewayRef?.recordAgentError(e), // 与 createGateway 生产接线同构（R2-F5）
   });
   const gateway = new Gateway({ transport, logger, botDir: dir, handler });
