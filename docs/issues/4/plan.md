@@ -44,7 +44,7 @@
   - `export function attachmentNote(kind: MediaKind, absPath: string, bytes: number): string`
   - `export function degradedNote(kind: MediaKind, reason: 'empty' | 'oversize' | 'save-failed'): string`
 
-- [ ] **Step 1: Write the failing test**（`tests/unit/media.test.ts`）
+- [x] **Step 1: Write the failing test**（`tests/unit/media.test.ts`）
 
 ```ts
 import { test, expect } from 'bun:test';
@@ -155,8 +155,8 @@ test('degradedNote：三降级原因渲染，恒单行', () => {
 });
 ```
 
-- [ ] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/unit/media.test.ts` Expected: FAIL（`Cannot find module '../../src/media'`）
-- [ ] **Step 3: Write the minimal implementation**（`src/media.ts`）
+- [x] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/unit/media.test.ts` Expected: FAIL（`Cannot find module '../../src/media'`）
+- [x] **Step 3: Write the minimal implementation**（`src/media.ts`）
 
 ```ts
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -289,8 +289,8 @@ export class MediaStore {
 }
 ```
 
-- [ ] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/unit/media.test.ts` Expected: PASS（7 tests）
-- [ ] **Step 5: Commit** — `git add src/media.ts tests/unit/media.test.ts && git commit -m "W4: MediaStore — sanitize (traversal/control-char/newline strip, ext-preserving truncation), date-dir layout, 30d prune, attachment notes"`
+- [x] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/unit/media.test.ts` Expected: PASS（7 tests）
+- [x] **Step 5: Commit** — `git add src/media.ts tests/unit/media.test.ts && git commit -m "W4: MediaStore — sanitize (traversal/control-char/newline strip, ext-preserving truncation), date-dir layout, 30d prune, attachment notes"`
 
 ### Task 2: transport 事件面 + downloadFile 端口 + mock/桩迁移
 
