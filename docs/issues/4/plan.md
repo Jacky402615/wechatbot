@@ -447,10 +447,10 @@ export interface InboundMediaMessage {
 
 ## Checkpoint A（Tasks 1–2 后）
 
-- [ ] `bun run typecheck` 通过
-- [ ] **SDK pin 核验**（加密镜像与 SDK `decryptFile` 内部耦合）：`grep '"@wecom/aibot-node-sdk"' package.json` 输出必须精确 `"@wecom/aibot-node-sdk": "1.0.7"`（无 `^`/`~`）；`bun pm ls | grep aibot` 确认解析版本 1.0.7——不匹配即停（Task 4 加密镜像会以错误方式漂移）
-- [ ] `bun test tests/unit/media.test.ts tests/integration/transport.test.ts tests/unit/agent-handler.test.ts` 全绿
-- [ ] `bun test`（全量）不回归
+- [x] `bun run typecheck` 通过
+- [x] **SDK pin 核验**（加密镜像与 SDK `decryptFile` 内部耦合）：`grep '"@wecom/aibot-node-sdk"' package.json` 输出必须精确 `"@wecom/aibot-node-sdk": "1.0.7"`（无 `^`/`~`）；`bun pm ls | grep aibot` 确认解析版本 1.0.7——不匹配即停（Task 4 加密镜像会以错误方式漂移）
+- [x] `bun test tests/unit/media.test.ts tests/integration/transport.test.ts tests/unit/agent-handler.test.ts` 全绿
+- [x] `bun test`（全量）不回归
 
 ### Task 3: AgentHandler.onMedia 编排 + createGateway 接线
 
@@ -717,9 +717,9 @@ deps 类型追加 `media: MediaStore`。
 
 ## Checkpoint B（Task 3 后）
 
-- [ ] `bun run typecheck && bun test` 全绿
-- [ ] 媒体失败面全部路径各有单测锚定：下载 throw / 缺 url / 缺 aeskey（错误面）；空 / 超帽 / 落盘失败（降级面）
-- [ ] `git check-ignore .bot/uploads` 命中（`.gitignore` 的 `.bot/` 行——附件不入库复核）
+- [x] `bun run typecheck && bun test` 全绿
+- [x] 媒体失败面全部路径各有单测锚定：下载 throw / 缺 url / 缺 aeskey（错误面）；空 / 超帽 / 落盘失败（降级面）
+- [x] `git check-ignore .bot/uploads` 命中（`.gitignore` 的 `.bot/` 行——附件不入库复核）
 
 ### Task 4: 端到端集成 — AC1–AC4（真 SDK 下载解密）
 
@@ -942,8 +942,8 @@ test('W4 未授权：陌生人媒体零下载零 spawn，拒绝文案送达', as
 
 ## Checkpoint C（Task 4 后）
 
-- [ ] `bun run typecheck && bun test`（全量）通过
-- [ ] AC1–AC4 各有集成证据且绿
+- [x] `bun run typecheck && bun test`（全量）通过
+- [x] AC1–AC4 各有集成证据且绿
 
 ### Task 5: SPEC.md 契约段 + README + follow-up issue + 交付门
 
@@ -1010,10 +1010,10 @@ test('W4 未授权：陌生人媒体零下载零 spawn，拒绝文案送达', as
 
 ## Checkpoint D（Task 5 后——交付门）
 
-- [ ] `bun run typecheck && bun test && bun run build && bun run check:dist` 全绿
-- [ ] AC1–AC4 各有集成测试且绿（tests/integration/media.test.ts + agent-handler 单测）
-- [ ] 自审：scope 对照 issue 描述——chunked upload、transcription、mixed 群图文未做（out of scope 确认；mixed 已开 follow-up）
-- [ ] **Human-Review 证据清单**（PR 描述携带空栏，owner 逐项填写后方可合并）：
+- [x] `bun run typecheck && bun test && bun run build && bun run check:dist` 全绿
+- [x] AC1–AC4 各有集成测试且绿（tests/integration/media.test.ts + agent-handler 单测）
+- [x] 自审：scope 对照 issue 描述——chunked upload、transcription、mixed 群图文未做（out of scope 确认；mixed 已开 follow-up）
+- [x] **Human-Review 证据清单**（PR 描述携带空栏，owner 逐项填写后方可合并）：
   - 真机单聊发图：`uploads/YYYY-MM-DD/` 落盘解密成功 + agent 正确引用图片内容（AC1）：____
   - 真机单聊发文件（含中文名）：____
   - 真机发语音/视频：归档 + 不可解析声明回执：____（同时核对 voice 帧 url/aeskey 运行时形状——FLAGGED D12）
