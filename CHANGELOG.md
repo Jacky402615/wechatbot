@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+（无）
+
+## [0.1.0] - 2026-09-13
+
 ### Added
 - WeCom 长连接 transport：基于 `@wecom/aibot-node-sdk`（钉死 1.0.7）的自有 adapter——connect、`aibot_subscribe` 认证、30 s 心跳、异常断链指数退避重连、被踢（`disconnected_event`）延迟重订阅自愈；换 SDK 只动 adapter；群聊帧解析 `chatid`（缺失即忽略）。
 - Agent 会话层（W2）：每 chat（单聊 per-user / 群聊 per-group）spawn `claude`（`--print` stream-json 双向协议、`bypassPermissions`、`--model` 可配），空闲 TTL 内 `--resume` 续接、过期新建（`.bot/sessions/` 原子落盘 0600）；回合结束有界收割梯子（stdin.end→SIGTERM→SIGKILL）。
