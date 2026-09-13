@@ -733,7 +733,7 @@ deps 类型追加 `media: MediaStore`。
   - `export function encryptMedia(plain: Buffer, aesKeyB64: string): Buffer`（AES-256-CBC、IV=key[:16]、PKCS#7 填充至 32 字节块——SDK `decryptFile` 的互逆镜像；**仅测试用**，Q12 约束的是产品路径）
   - `export class MediaFileServer { add(pathname, data, opts?: { filename?; status? }); start(): Promise<{ port; base }>; stop(): Promise<void> }`
 
-- [ ] **Step 1: Write the helper and failing tests**（`tests/helpers/media-file-server.ts`）
+- [x] **Step 1: Write the helper and failing tests**（`tests/helpers/media-file-server.ts`）
 
 ```ts
 import { createServer, type Server } from 'node:http';
@@ -935,10 +935,10 @@ test('W4 未授权：陌生人媒体零下载零 spawn，拒绝文案送达', as
 });
 ```
 
-- [ ] **Step 2: Run it — post-implementation PASS-only evidence gate** — Run: `bun test tests/integration/media.test.ts` Expected: PASS（Tasks 1–3 已实现全部行为，helper 与测试文件在本步前已落盘——本任务是验收证据固化）。任何 FAIL 即 Task 1–3 实现缺口：修实现，不改验收断言；唯二允许的 fixture 级修正：(a) axios 代理问题 ⇒ 确认文件头 NO_PROXY 行存在，(b) bun http server 关闭竞态 ⇒ 调整 stop() 兜底超时。
-- [ ] **Step 3: 修正至全绿**（修实现不改验收断言；若 axios 代理问题致本地下载失败，固化 NO_PROXY 设置于测试文件头部）
-- [ ] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/integration/media.test.ts` Expected: PASS（5 tests）
-- [ ] **Step 5: Commit** — `git add tests/helpers/media-file-server.ts tests/integration/media.test.ts && git commit -m "W4: end-to-end AC1-AC4 — real SDK download+decrypt via local encrypted file server, prompt-path evidence, failure surfaces"`
+- [x] **Step 2: Run it — post-implementation PASS-only evidence gate** — Run: `bun test tests/integration/media.test.ts` Expected: PASS（Tasks 1–3 已实现全部行为，helper 与测试文件在本步前已落盘——本任务是验收证据固化）。任何 FAIL 即 Task 1–3 实现缺口：修实现，不改验收断言；唯二允许的 fixture 级修正：(a) axios 代理问题 ⇒ 确认文件头 NO_PROXY 行存在，(b) bun http server 关闭竞态 ⇒ 调整 stop() 兜底超时。
+- [x] **Step 3: 修正至全绿**（修实现不改验收断言；若 axios 代理问题致本地下载失败，固化 NO_PROXY 设置于测试文件头部）
+- [x] **Step 4: Run it and verify it PASSES** — Run: `bun test tests/integration/media.test.ts` Expected: PASS（5 tests）
+- [x] **Step 5: Commit** — `git add tests/helpers/media-file-server.ts tests/integration/media.test.ts && git commit -m "W4: end-to-end AC1-AC4 — real SDK download+decrypt via local encrypted file server, prompt-path evidence, failure surfaces"`
 
 ## Checkpoint C（Task 4 后）
 
