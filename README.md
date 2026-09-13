@@ -51,6 +51,13 @@ wechatbot stop -r /path/to/workspace
 （需同时在 `config.json` 配 `groupMentionName`）。改动即时生效（逐消息重读）。
 可用命令：`/new` `/stop` `/status`（仅管理员私聊）`/help`。
 
+### 附件（图片 / 文件 / 语音 / 视频）
+
+私聊发送的图片与文件会被机器人下载解密并保存到 `<workspace>/.bot/uploads/YYYY-MM-DD/`，
+随后交给 claude 处理（可直接查看图片与文件内容）。语音与视频仅归档——当前版本无法解析
+其内容（转写属后续版本）。附件下载失败（如链接过期）会收到一条失败提示。文件保留 30 天
+后自动清理。群聊内的图片消息（图文混排）当前版本暂不支持。
+
 ### 配置（`<workspace>/.bot/config.json`）
 
 | 键 | 类型 | 默认 | 说明 |

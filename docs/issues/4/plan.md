@@ -955,7 +955,7 @@ test('W4 未授权：陌生人媒体零下载零 spawn，拒绝文案送达', as
 - Consumes: Tasks 1–4 全部落定行为
 - Produces: 文档契约 + mixed follow-up issue（GitHub）
 
-- [ ] **Step 1: Write the docs**（`SPEC.md` 追加段）：
+- [x] **Step 1: Write the docs**（`SPEC.md` 追加段）：
 
 ```md
 ## 附件面（W4 契约）
@@ -996,7 +996,7 @@ test('W4 未授权：陌生人媒体零下载零 spawn，拒绝文案送达', as
 后自动清理。群聊内的图片消息（图文混排）当前版本暂不支持。
 ```
 
-- [ ] **Step 2: File the follow-up issue（mixed 群图文）** — 首选 `mcp__github__create_issue`（owner `Jacky402615`，repo `wechatbot`，labels `["enhancement"]`，title `Group mixed-message support (group image via msgtype=mixed)`，body 见下）；无 MCP 时 fallback：
+- [x] **Step 2: File the follow-up issue（mixed 群图文）** — 首选 `mcp__github__create_issue`（owner `Jacky402615`，repo `wechatbot`，labels `["enhancement"]`，title `Group mixed-message support (group image via msgtype=mixed)`，body 见下）；无 MCP 时 fallback：
   ```bash
   gh issue create -R Jacky402615/wechatbot -l enhancement \
     -t "Group mixed-message support (group image via msgtype=mixed)" \
@@ -1004,9 +1004,9 @@ test('W4 未授权：陌生人媒体零下载零 spawn，拒绝文案送达', as
   ```
   验证：`gh issue view --json url`（或 MCP 返回的 html_url）拿到 issue URL。看板回写：用 `mcp__github__update_issue_comment`（comment_id = 本轮工作看板评论 ID——board 协议持久化的那个）在 `### 执行日志` 追加一行 `- follow-up(mixed): <issue URL>`；MCP 不可用时 `gh api repos/Jacky402615/wechatbot/issues/comments/<id> -X PATCH -f body="$(gh api repos/Jacky402615/wechatbot/issues/comments/<id> --jq .body)
 - follow-up(mixed): <issue URL>"`。
-- [ ] **Step 3: Verify docs against behavior** — Run: `bun test` + `bun run typecheck` + 通读 SPEC 新段与 Task 3/4 行为一一对照（每条契约可指回某测试）；**旧契约负检查**（防评审已废弃措辞回潮）：`! grep -q '缺 url 帧 debug 忽略' SPEC.md` 与 `! grep -qE '<kind>-<msgid>' SPEC.md docs/issues/4/plan.md` ——两条取反命令**退出码都必须为 0**（即底层 grep 无匹配、退出 1）才通过
-- [ ] **Step 4: Full gate** — Run: `bun run typecheck && bun test && bun run build && bun run check:dist` Expected: 全部通过
-- [ ] **Step 5: Commit** — `git add SPEC.md README.md && git commit -m "W4: SPEC attachment contract section + README media docs"`
+- [x] **Step 3: Verify docs against behavior** — Run: `bun test` + `bun run typecheck` + 通读 SPEC 新段与 Task 3/4 行为一一对照（每条契约可指回某测试）；**旧契约负检查**（防评审已废弃措辞回潮；范围 = 交付物 SPEC.md——plan 自身需引用旧模式作历史记录，不入检查）：`! grep -q '缺 url 帧 debug 忽略' SPEC.md` 与 `! grep -qE '<kind>-<msgid>' SPEC.md` ——两条取反命令**退出码都必须为 0**（即底层 grep 无匹配、退出 1）才通过
+- [x] **Step 4: Full gate** — Run: `bun run typecheck && bun test && bun run build && bun run check:dist` Expected: 全部通过
+- [x] **Step 5: Commit** — `git add SPEC.md README.md && git commit -m "W4: SPEC attachment contract section + README media docs"`
 
 ## Checkpoint D（Task 5 后——交付门）
 
