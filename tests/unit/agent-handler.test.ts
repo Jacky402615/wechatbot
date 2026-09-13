@@ -1,12 +1,13 @@
 import { test, expect } from 'bun:test';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentHandler, ConversationRateLimiter } from '../../src/handlers/agent';
 import type { AgentEvent, AgentEventHandler } from '../../src/agent/manager';
-import type { InboundTextMessage, ReplyRef, TransportEvent, TransportHandler, WeComTransport } from '../../src/transport/types';
+import type { InboundTextMessage, InboundMediaMessage, ReplyRef, TransportEvent, TransportHandler, WeComTransport } from '../../src/transport/types';
 import { BotLogger } from '../../src/logger';
 import { AccessGate } from '../../src/access';
+import { MediaStore, MAX_MEDIA_BYTES } from '../../src/media';
 
 class FakeTransport implements WeComTransport {
   sent: Array<{ streamId: string; content: string; finish: boolean }> = [];
@@ -64,8 +65,9 @@ function makeHandler(manager = new FakeManager(), opts: { onReplyError?: (e: Err
   const access = new AccessGate(join(dir, 'access.json'));
   const transport = new FakeTransport();
   const logger = new BotLogger({ level: 'debug', logDir: join(dir, 'logs'), console: false });
-  const handler = new AgentHandler({ transport, logger, manager, workspace: dir, access }, { refreshIntervalMs: 10, ...opts });
-  return { handler, transport, manager, dir, logger };
+  const media = new MediaStore(join(dir, 'uploads'));
+  const handler = new AgentHandler({ transport, logger, manager, workspace: dir, access, media }, { refreshIntervalMs: 10, ...opts });
+  return { handler, transport, manager, dir, logger, media };
 }
 
 function makeGatedHandler(accessJson: unknown, mentionName?: string, manager = new FakeManager()) {
@@ -75,8 +77,9 @@ function makeGatedHandler(accessJson: unknown, mentionName?: string, manager = n
   const access = new AccessGate(join(dir, 'access.json'));
   const transport = new FakeTransport();
   const logger = new BotLogger({ level: 'debug', logDir: join(dir, 'logs'), console: false });
-  const handler = new AgentHandler({ transport, logger, manager, workspace: dir, access, ...(mentionName !== undefined ? { mentionName } : {}) }, { refreshIntervalMs: 10 });
-  return { handler, transport, manager, dir, access };
+  const media = new MediaStore(join(dir, 'uploads'));
+  const handler = new AgentHandler({ transport, logger, manager, workspace: dir, access, media, ...(mentionName !== undefined ? { mentionName } : {}) }, { refreshIntervalMs: 10 });
+  return { handler, transport, manager, dir, access, media };
 }
 
 const MSG = (over: Partial<InboundTextMessage> = {}): { type: 'textMessage'; message: InboundTextMessage } => ({
@@ -226,7 +229,7 @@ test('终帧有界等待→逃逸记账：预算耗尽时 final 仍发出、且�
   const exhausted = { tryAcquire: (_k: string) => false, record: (k: string) => recorded.push(k) }; // 永远没预算
   const mgr = new FakeManager();
   const handler = new AgentHandler(
-    { transport, logger, manager: mgr, workspace: dir, access },
+    { transport, logger, manager: mgr, workspace: dir, access, media: new MediaStore(join(dir, 'uploads')) },
     { rateLimiter: exhausted as unknown as ConversationRateLimiter, finalWaitIntervalMs: 5, finalWaitMaxTries: 3 },
   );
   handler.register();
@@ -249,7 +252,7 @@ test('通知帧预算耗尽即丢（不等待不逃逸）：queue-full 通知被
   const mgr = new FakeManager();
   mgr.submitResult = 'queue-full';
   const handler = new AgentHandler(
-    { transport, logger, manager: mgr, workspace: dir, access },
+    { transport, logger, manager: mgr, workspace: dir, access, media: new MediaStore(join(dir, 'uploads')) },
     { rateLimiter: exhausted as unknown as ConversationRateLimiter },
   );
   handler.register();
@@ -351,7 +354,7 @@ test('关键兜底不受限流丢弃：预算耗尽时入站失败仍发「处�
   const mgr = new FakeManager();
   mgr.expireStaleAsk = () => { throw new Error('EACCES: session read failed'); };
   const handler = new AgentHandler(
-    { transport, logger, manager: mgr, workspace: dir, access },
+    { transport, logger, manager: mgr, workspace: dir, access, media: new MediaStore(join(dir, 'uploads')) },
     { rateLimiter: exhausted as unknown as ConversationRateLimiter, finalWaitIntervalMs: 5, finalWaitMaxTries: 3 },
   );
   handler.register();
@@ -517,4 +520,135 @@ test('W3 日志契约（R2-F5）：feedback/拒绝入日志但不记内容；wel
   transport.emit({ type: 'enterChat', message: { msgid: 'e9', chatType: 'single', userId: 'u1', replyTo: { __brand: 'ReplyRef', reqId: 'r-e9' } } });
   await flush();
   expect(logLines(dir).some((l) => l['event'] === 'welcome reply failed' && l['level'] === 'error')).toBe(true);
+});
+
+const MEDIA = (over: Partial<InboundMediaMessage> = {}): { type: 'mediaMessage'; message: InboundMediaMessage } => ({
+  type: 'mediaMessage',
+  message: { msgid: 'mm1', chatType: 'single', userId: 'u1', kind: 'image', url: 'https://f/x.jpg', aeskey: 'k1', replyTo: { __brand: 'ReplyRef', reqId: 'rm1' }, ...over },
+});
+const todayDir = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+test('W4 AC1/AC2 桥：image/file 下载落盘 → submit prompt 携带 [Context] 前导 + 绝对路径 note', async () => {
+  const { handler, transport, manager, dir } = makeHandler();
+  handler.register();
+  transport.downloadImpl = async () => ({ buffer: Buffer.from('jpegbytes'), filename: 'photo.jpg' });
+  transport.emit(MEDIA());
+  await flush();
+  expect(transport.downloads).toEqual([{ url: 'https://f/x.jpg', aeskey: 'k1' }]);
+  expect(manager.submitted.length).toBe(1);
+  const prompt = manager.submitted[0]!.prompt;
+  expect(prompt.startsWith('[Context: sender=u1, userid=u1, chat=u1 (p2p)]\n\n')).toBe(true);
+  expect(prompt).toContain('Read');
+  expect(prompt).toContain(join(dir, 'uploads'));       // 绝对路径入 note
+  expect(prompt).toContain('mm1-photo.jpg');            // msgid 前缀消毒名
+  expect(prompt).toContain('9 字节');                    // 字节数
+  expect(existsSync(join(dir, 'uploads', todayDir(), 'mm1-photo.jpg'))).toBe(true);          // 落盘（深断言在 media.test.ts）
+});
+
+test('W4 AC3 桥：voice/video 下载归档 → note 含「无法解析」；不携带 Read 指令', async () => {
+  const { handler, transport, manager } = makeHandler();
+  handler.register();
+  transport.downloadImpl = async () => ({ buffer: Buffer.alloc(32) });
+  transport.emit(MEDIA({ kind: 'voice', msgid: 'v1' }));
+  await flush();
+  const p1 = manager.submitted[0]!.prompt;
+  expect(p1).toContain('无法解析');
+  expect(p1).toContain('amr');
+  expect(p1).not.toContain('Read 工具查看');
+  transport.emit(MEDIA({ kind: 'video', msgid: 'v2' }));
+  await flush();
+  expect(manager.submitted[1]!.prompt).toContain('无法解析');
+});
+
+test('W4 AC4 桥：下载 throw ⇒ criticalFinal 短错误（不 submit、不下载两次）；错误文案含「重新发送」', async () => {
+  const { handler, transport, manager } = makeHandler();
+  handler.register();
+  transport.downloadImpl = async () => { throw new Error('decryptFile: Decryption failed'); };
+  transport.emit(MEDIA());
+  await flush();
+  expect(manager.submitted.length).toBe(0);
+  const last = transport.sent.at(-1)!;
+  expect(last.finish).toBe(true);
+  expect(last.content).toContain('附件接收失败');
+  expect(last.content).toContain('重新发送');
+});
+
+test('W4 降级：空 buffer / 超帽 buffer ⇒ 不落盘、submit prompt 携带降级 note、回合照跑', async () => {
+  const { handler, transport, manager } = makeHandler();
+  handler.register();
+  transport.downloadImpl = async () => ({ buffer: Buffer.alloc(0), filename: 'x.jpg' });
+  transport.emit(MEDIA({ msgid: 'e1' }));
+  await flush();
+  expect(manager.submitted[0]!.prompt).toContain('未能成功接收');
+  transport.downloadImpl = async () => ({ buffer: Buffer.alloc(MAX_MEDIA_BYTES + 1), filename: 'big.bin' });
+  transport.emit(MEDIA({ msgid: 'o1', kind: 'file' }));
+  await flush();
+  expect(manager.submitted[1]!.prompt).toContain('100MB');
+});
+
+test('W4 协议异常：缺 url / 缺 aeskey ⇒ 与下载失败同面（关键终帧错误、零下载、零 submit）', async () => {
+  const { handler, transport, manager } = makeHandler();
+  handler.register();
+  transport.emit(MEDIA({ msgid: 'nu1', url: undefined }));                    // 缺 url（voice .d.ts 形状）
+  await flush();
+  expect(transport.downloads.length).toBe(0);
+  expect(manager.submitted.length).toBe(0);
+  expect(transport.sent.at(-1)!.finish).toBe(true);
+  expect(transport.sent.at(-1)!.content).toContain('附件接收失败');
+  transport.emit(MEDIA({ msgid: 'nk1', aeskey: undefined }));                 // 缺 aeskey——密文不得当附件
+  await flush();
+  expect(transport.downloads.length).toBe(0);                                 // 未尝试下载（无 key 密文无意义）
+  expect(manager.submitted.length).toBe(0);
+  expect(transport.sent.at(-1)!.content).toContain('附件接收失败');
+});
+
+test('W4 落盘失败 ⇒ 降级 note、回合照跑、仅一次下载（确定性：目标路径预置为目录）', async () => {
+  const { handler, transport, manager, dir } = makeHandler();
+  handler.register();
+  mkdirSync(join(dir, 'uploads', todayDir(), 'sv1-photo.jpg'), { recursive: true });  // writeFileSync 目标是目录 ⇒ EISDIR
+  transport.downloadImpl = async () => ({ buffer: Buffer.from('x'), filename: 'photo.jpg' });
+  transport.emit(MEDIA({ msgid: 'sv1' }));
+  await flush();
+  expect(transport.downloads.length).toBe(1);                                // 不重试下载
+  expect(manager.submitted.length).toBe(1);
+  expect(manager.submitted[0]!.prompt).toContain('未能成功接收');              // save-failed 降级 note
+});
+
+test('W4 gate：未授权/陌生人媒体 ⇒ 拒绝文案 + 零下载 + 零 submit；群媒体帧忽略', async () => {
+  const { handler, transport, manager } = makeGatedHandler({ approved: ['u1'] });
+  handler.register();
+  transport.emit(MEDIA({ userId: 'stranger' }));
+  await flush();
+  expect(transport.sent.at(-1)!.content).toContain('未被授权');
+  expect(transport.downloads.length).toBe(0);           // 先拒绝后下载（D4）
+  expect(manager.submitted.length).toBe(0);
+  transport.emit(MEDIA({ chatType: 'group', chatId: 'g1' }));
+  await flush();
+  expect(transport.downloads.length).toBe(0);           // 群媒体 handler 防御性忽略
+  expect(transport.sent.length).toBe(1);                // 无新增回执
+});
+
+test('W4 pending-ask：媒体不认领 ask（无 answerPendingAsk 调用）、照常 submit 排队', async () => {
+  const { handler, transport, manager } = makeHandler();
+  handler.register();
+  manager.pendingFlag = true;
+  transport.downloadImpl = async () => ({ buffer: Buffer.from('x'), filename: 'a.png' });
+  transport.emit(MEDIA());
+  await flush();
+  expect(manager.answers.length).toBe(0);               // 未作答
+  expect(manager.submitted.length).toBe(1);             // 照常进回合（busy 时由 manager 排队）
+});
+
+test('W4 queue-full：submit 拒收 ⇒ 队列满提示', async () => {
+  const manager = new FakeManager();
+  manager.submitResult = 'queue-full';
+  const { handler, transport } = makeHandler(manager);
+  handler.register();
+  transport.downloadImpl = async () => ({ buffer: Buffer.from('x'), filename: 'a.png' });
+  transport.emit(MEDIA());
+  await flush();
+  expect(transport.sent.at(-1)!.content).toContain('队列已满');
 });

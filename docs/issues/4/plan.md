@@ -465,7 +465,7 @@ export interface InboundMediaMessage {
   - handler deps 增 `media: MediaStore`
   - `AgentHandler.onMedia(m: InboundMediaMessage): Promise<void>`（私有——编排序即 Global Constraints 分派序）
 
-- [ ] **Step 1: Write the failing test**（追加进 `tests/unit/agent-handler.test.ts`；import 区补 `import { MediaStore } from '../../src/media';`、`import type { InboundMediaMessage } from '../../src/transport/types';`）
+- [x] **Step 1: Write the failing test**（追加进 `tests/unit/agent-handler.test.ts`；import 区补 `import { MediaStore } from '../../src/media';`、`import type { InboundMediaMessage } from '../../src/transport/types';`）
 
 fixture 增装配（两个 fixture 同 commit 改）：
 
@@ -608,8 +608,8 @@ test('W4 queue-full：submit 拒收 ⇒ 队列满提示', async () => {
 
 （import 区补 `existsSync`——`node:fs` 既有 import 追加；`MAX_MEDIA_BYTES` 自 `../../src/media` 追加 import。）
 
-- [ ] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/unit/agent-handler.test.ts` Expected: FAIL（AgentHandler deps 无 media——构造类型错/typecheck 红）
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 2: Run it and verify it FAILS** — Run: `bun test tests/unit/agent-handler.test.ts` Expected: FAIL（AgentHandler deps 无 media——构造类型错/typecheck 红）
+- [x] **Step 3: Write the minimal implementation**
 
 `src/handlers/agent.ts`——import 区追加：
 
@@ -712,8 +712,8 @@ deps 类型追加 `media: MediaStore`。
 
 （import 区补 `import { MediaStore } from './media';`；AgentHandler 构造 deps 增 `media`。）
 
-- [ ] **Step 4: Run it and verify it PASSES（全量门）** — Run: `bun run typecheck && bun test` Expected: PASS（媒体新用例 + W1–W3 全部回归绿）
-- [ ] **Step 5: Commit** — `git add src/handlers/agent.ts src/gateway.ts tests/unit/agent-handler.test.ts && git commit -m "W4: AgentHandler media orchestration (gate-before-download, critical-final error path, degrade notes) + gateway MediaStore wiring"`
+- [x] **Step 4: Run it and verify it PASSES（全量门）** — Run: `bun run typecheck && bun test` Expected: PASS（媒体新用例 + W1–W3 全部回归绿）
+- [x] **Step 5: Commit** — `git add src/handlers/agent.ts src/gateway.ts tests/unit/agent-handler.test.ts && git commit -m "W4: AgentHandler media orchestration (gate-before-download, critical-final error path, degrade notes) + gateway MediaStore wiring"`
 
 ## Checkpoint B（Task 3 后）
 

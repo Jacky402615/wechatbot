@@ -9,6 +9,7 @@ import { AgentHandler } from './handlers/agent';
 import { AgentManager, type ClaudeCommand } from './agent/manager';
 import { SessionStore } from './agent/session-store';
 import { AccessGate } from './access';
+import { MediaStore } from './media';
 
 /** W2：消息面 handler 契约（AgentHandler 实现；测试注入桩） */
 export interface BotHandler { register(): void; stop?(): Promise<void> }
@@ -176,6 +177,11 @@ export async function createGateway(
   if (access.load().groups.length > 0 && !ws.config.groupMentionName) {
     throw new ConfigError(`access.json lists groups but config.json has no groupMentionName — group @-trigger cannot match (workspace: ${workspace})`);
   }
+  const media = new MediaStore(join(ws.botDir, 'uploads'), {
+    onError: (e, what) => logger.warn('uploads prune failed', { what, err: e.message }),
+  });
+  media.prune();            // D9：启动即剪
+  media.startPruneTimer();  // 24 h unref 定时
   const manager = new AgentManager({
     workspacePath: workspace, sessions, logger,
     options: {
@@ -189,7 +195,7 @@ export async function createGateway(
     },
   });
   let gatewayRef: Gateway | null = null;
-  const handler = new AgentHandler({ transport, logger, manager, workspace, access, ...(ws.config.groupMentionName ? { mentionName: ws.config.groupMentionName } : {}) }, {
+  const handler = new AgentHandler({ transport, logger, manager, workspace, access, media, ...(ws.config.groupMentionName ? { mentionName: ws.config.groupMentionName } : {}) }, {
     onReplyError: (e) => gatewayRef?.recordAgentError(e),   // F8：agent 失败进 state.json lastError
     ...(agent.refreshIntervalMs !== undefined ? { refreshIntervalMs: agent.refreshIntervalMs } : {}),
   });
