@@ -109,6 +109,24 @@ export class MockWecomServer {
     });
   }
 
+  /** W4：mixed（群图文混排）帧——v1 不支持，仅验证 adapter 的可见忽略（debug 留痕、零事件） */
+  pushMixedMessage(reqId: string, msg: { msgid: string; userId: string; chatid?: string }): void {
+    this.broadcast({
+      cmd: 'aibot_msg_callback',
+      headers: { req_id: reqId },
+      body: {
+        msgid: msg.msgid, aibotid: 'bot-mock', chattype: 'group',
+        ...(msg.chatid ? { chatid: msg.chatid } : {}),
+        from: { userid: msg.userId }, msgtype: 'mixed',
+        mixed: { msg_item: [{ msgtype: 'text', text: { content: '@小助手 看图' } }, { msgtype: 'image', image: { url: 'https://files.example/x', aeskey: 'k' } }] },
+        create_time: Math.floor(Date.now() / 1000),
+      },
+    });
+  }
+
+  /** W4 code-review 测试用：注入原始帧（残帧守卫验证——正常业务请用 push* 助手） */
+  pushRaw(frame: unknown): void { this.broadcast(frame); }
+
   kick(): void {
     this.broadcast({
       cmd: 'aibot_event_callback',

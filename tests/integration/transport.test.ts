@@ -226,3 +226,25 @@ test('W4：四类媒体帧映射 mediaMessage 事件；群媒体忽略；缺 url
   await expect(t.downloadFile('https://files.example/x', 'a2V5')).rejects.toThrow('transport not started'); // 端口存在 + 未启动守卫（真下载由 media.test.ts 集成覆盖——不在单测打真网络）
   await srv.stop();
 });
+
+test('W4 code-review C-F3/C-F5：mixed 帧可见忽略（debug 留痕、零事件）；缺 msgid/from 的残帧忽略', async () => {
+  const srv = new MockWecomServer();
+  const { url } = await srv.start();
+  const debugs: string[] = [];
+  const t = new WecomSdkTransport({
+    botId: 'b', secret: 's', wsUrl: url, ...FAST,
+    logger: { debug: (m: string) => debugs.push(m), info: () => {}, warn: () => {}, error: () => {} },
+  });
+  const rec = recorder();
+  t.on(rec.push);
+  await t.start();
+  srv.pushMixedMessage('req-mx1', { msgid: 'mx1', userId: 'u1', chatid: 'g1' });
+  srv.pushRaw({ cmd: "aibot_msg_callback", headers: { req_id: 'req-broken' }, body: { msgid: undefined, aibotid: 'bot-mock', chattype: 'single', from: { userid: 'u1' }, msgtype: 'image', image: { url: 'https://f/x', aeskey: 'k' } } });
+  srv.pushRaw({ cmd: "aibot_msg_callback", headers: { req_id: 'req-broken2' }, body: { msgid: 'nb2', aibotid: 'bot-mock', chattype: 'single', msgtype: 'image', image: { url: 'https://f/x', aeskey: 'k' } } });
+  await new Promise((r) => setTimeout(r, 300));
+  expect(rec.events.filter((e) => e.type === 'mediaMessage').length).toBe(0);           // mixed 零事件 + 残帧零事件
+  expect(debugs.some((m) => m.includes('mixed message not supported'))).toBe(true);    // mixed 可见忽略（debug 留痕）
+  expect(debugs.some((m) => m.includes('without msgid/from ignored'))).toBe(true);     // 残帧守卫生效
+  await t.stop();
+  await srv.stop();
+});

@@ -134,3 +134,22 @@ test('W4 未授权：陌生人媒体零下载零 spawn，拒绝文案送达', as
     expect(existsSync(join(stateDir, 'stdin.jsonl'))).toBe(false);
   });
 });
+
+test('W4 code-review C-F4：createGateway 启动即剪枝——旧日期目录被删、新目录保留', async () => {
+  // 独立装配（不经 setupMedia——要在 createGateway 之前播种旧目录）
+  const ws = mkdtempSync(join(tmpdir(), 'wb-media-prune-'));
+  const { loadWorkspace } = await import('../../src/config');
+  loadWorkspace(ws);
+  writeFileSync(join(ws, '.bot', '.env'), 'WECOM_BOT_ID=b\nWECOM_SECRET=s\n');
+  writeFileSync(join(ws, '.bot', 'access.json'), JSON.stringify({ approved: ['u1'] }) + '\n');
+  mkdirSync(join(ws, '.bot', 'uploads', '2020-01-01'), { recursive: true });           // 旧日期目录（31+ 天）
+  mkdirSync(join(ws, '.bot', 'uploads', todayDir()), { recursive: true });             // 当日目录
+  const srv = new MockWecomServer();
+  const { url } = await srv.start();
+  const { gateway } = await createGateway(ws, { wsUrl: url, reconnectInterval: 50, heartbeatInterval: 500, requestTimeout: 2000, resubscribeDelayMs: 150 });
+  await gateway.start();
+  expect(existsSync(join(ws, '.bot', 'uploads', '2020-01-01'))).toBe(false);           // 启动即剪
+  expect(existsSync(join(ws, '.bot', 'uploads', todayDir()))).toBe(true);              // 当日保留
+  await gateway.stop();
+  await srv.stop();
+});

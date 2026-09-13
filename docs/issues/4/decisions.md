@@ -121,6 +121,15 @@ Codex 强化（采纳）：分发/消毒/剪枝/notice 丢弃路径全覆盖；�
 - **readdir 注入类型对齐**：Task 1 实现块构造器 opts 类型补 `readdir?: (dir: string) => string[]`（Produces 块与测试已声明，实现块漏同步——typecheck 会拦截，评审先行修正）。
 - **验证门措辞矛盾**：Task 1 测试计数 6 → 7（safeMsgid 独立用例后未同步）；Task 5 Step 3 负检查措辞改为「取反命令退出码必须为 0（底层 grep 退出 1 = 无匹配）」。
 
+
+## code 评审 R1 修订（Building 收尾，5 项 findings：4 采纳、1 部分采纳）
+
+- **存储身份碰撞安全（C-F1，部分采纳——哈希后缀 + 契约精确化）**：`safeMsgid` 有损变换（替换/截断/空）时追加原始 msgid 的 SHA-256 短哈希后缀（`~<8>`）——不同原始 msgid 不折叠成同一存储身份；未受损的常规 msgid 原样保留（可读性）。**同 msgid 异名 = 不同投递内容 ⇒ 独立文件**（不强制 per-msgid 单一规范路径——那会牺牲 AC2 的可读文件名；契约措辞精确化为「同 msgid 同名幂等覆盖」）。测试补：跨 msgid 折叠不碰撞、截断折叠不碰撞、同 msgid 异名两文件。
+- **prune 硬化（C-F2，采纳）**：只删**真实目录**（lstat 判定——日期形普通文件/符号链接不动）；日历往返校验（`2026-02-30` 被 Date 归一到 3 月 ⇒ 非真实日期不动）。测试补两类残留样本。
+- **mixed 可见忽略落地（C-F3，采纳）**：adapter 显式订阅 `message.mixed` + debug 留痕（msgid/chatid）+ 零事件——兑现 D10「可见地忽略」的裁定（原实现无订阅 = 真空，与 SPEC/CHANGELOG 声明矛盾）；mock 补 `pushMixedMessage`，transport 测试经注入 logger 断言 debug 行。
+- **网关剪枝接线测试（C-F4，采纳启动面）**：集成测试播种旧日期目录 ⇒ `createGateway` 后被删、当日保留——`media.prune()` 调用有行为锚点。**24 h 定时器注入不做**（timer 工厂注入属过度工程；`startPruneTimer` 的 unref 语义由单测 + 代码审读覆盖，记录为接受）。
+- **残帧守卫（C-F5，采纳）**：缺 msgid/发送者的媒体帧在 adapter debug 忽略（msgid 是存储身份、userid 是会话键——缺失即不可定址；原实现会在 safeMsgid(undefined) 崩进 catch-all）。mock 补 `pushRaw` 原始帧注入，测试断言守卫生效。
+
 ## FLAGGED-FOR-HUMAN 汇总
 
 1. **voice 帧运行时 url/aeskey 形状**（D12）：SDK `.d.ts` 的 `VoiceContent` 只声明 `content`（ASR），平台协议称携带 url+aeskey；adapter 防御式读取 `voice.url`/`voice.aeskey`，缺失 ⇒ 失败错误面（D8 关键终帧——不下载不落盘，fail-safe 不误吞）。Human-Review 真机发语音核对。

@@ -1,4 +1,5 @@
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, lstatSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 
 export type MediaKind = 'image' | 'file' | 'voice' | 'video';
@@ -16,10 +17,15 @@ const MSGID_MAX = 64;
 const KIND_LABEL: Record<MediaKind, string> = { image: '图片', file: '文件', voice: '语音', video: '视频' };
 
 /** msgid 是平台输入（不可信）：字符集白名单 + 长度帽——直入文件路径/prompt 前会穿越/注入。
- *  空串产出占位 `_`（不产生空前缀）。 */
+ *  替换/截断是**有损**变换：一旦发生即追加原始 msgid 的短哈希后缀（`~<8>`），
+ *  使不同原始 msgid 不因消毒折叠成同一存储身份（code-review C-F1）；
+ *  未受损的常规 msgid 原样保留（可读性优先）。空串产出占位。 */
 export function safeMsgid(msgid: string): string {
   const safe = msgid.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, MSGID_MAX);
-  return safe || '_';
+  if (safe !== '' && safe === msgid) return safe; // 未受损的常规 msgid 原样（空串仍走占位+哈希）
+  const h = createHash('sha256').update(msgid).digest('base64url').slice(0, 8);
+  const room = Math.max(MSGID_MAX - 9, 1);
+  return `${safe.slice(0, room) || '_'}~${h}`;
 }
 
 /** D6 落盘名：`<safeMsgid>-<base>.<ext>`——剥路径分隔符/控制字符/换行（prompt 注入防线）、空白折叠、
@@ -93,9 +99,19 @@ export class MediaStore {
     const removed: string[] = [];
     for (const e of entries) {
       if (!DATE_DIR_RE.test(e)) continue;
+      // code-review C-F2：只删真实目录——日期形的普通文件/符号链接不动（rmSync force 会吞掉它们）
+      let st;
+      try {
+        st = lstatSync(join(this.uploadsDir, e), { throwIfNoEntry: false });
+      } catch {
+        continue;
+      }
+      if (!st?.isDirectory()) continue;
+      // code-review C-F2：日历往返校验——'2026-02-30' 被 Date 归一到 3 月，非真实日期不动
       const [y, mo, d] = e.split('-').map(Number) as [number, number, number];
       const dirDate = new Date(y!, mo! - 1, d!);
-      if (Number.isNaN(dirDate.getTime()) || dirDate >= cutoff) continue;
+      if (Number.isNaN(dirDate.getTime()) || dirDate.getFullYear() !== y! || dirDate.getMonth() !== mo! - 1 || dirDate.getDate() !== d!) continue;
+      if (dirDate >= cutoff) continue;
       try {
         removeDir(join(this.uploadsDir, e));
         removed.push(e);

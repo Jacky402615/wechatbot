@@ -7,17 +7,24 @@ import { MediaStore, sanitizeName, safeMsgid, attachmentNote, degradedNote, MAX_
 const tmp = () => { const d = mkdtempSync(join(tmpdir(), 'wb-media-')); mkdirSync(join(d, 'uploads'), { recursive: true }); return d; };
 const localDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-test('safeMsgid：字符集白名单 + 长度帽——穿越/控制字符/超长 msgid 不得入路径', () => {
-  expect(safeMsgid('mm1')).toBe('mm1');
-  expect(safeMsgid('../evil')).toBe('.._evil');            // / → _
-  expect(safeMsgid('a\nb')).toBe('a_b');                    // 控制字符 → _
+test('safeMsgid：白名单 + 长度帽；有损变换追加原始 msgid 短哈希（不同原始值不折叠同身份）', () => {
+  expect(safeMsgid('mm1')).toBe('mm1');                                   // 常规 msgid 原样（可读性优先）
+  expect(safeMsgid('../evil')).toMatch(/^\.\._evil~[A-Za-z0-9_-]{8}$/);   // 有损 ⇒ 哈希后缀（C-F1）
+  expect(safeMsgid('a\nb')).toMatch(/^a_b~[A-Za-z0-9_-]{8}$/);
   expect(safeMsgid('x'.repeat(300)).length).toBeLessThanOrEqual(64);
-  expect(safeMsgid('')).toBe('_');                          // 空 ⇒ 占位（不产生空前缀）
+  expect(safeMsgid('')).toMatch(/^_~[A-Za-z0-9_-]{8}$/);                  // 空 ⇒ 占位 + 哈希
+  // 碰撞安全（C-F1）：消毒折叠到同一安全前缀的不同原始 msgid ⇒ 不同存储身份
+  expect(safeMsgid('a/b')).not.toBe(safeMsgid('a_b'));
+  expect(safeMsgid('a\\b')).not.toBe(safeMsgid('a_b'));
+  // 截断碰撞：前 64 字符相同的长 msgid ⇒ 不同存储身份
+  const shared = 'y'.repeat(64);
+  expect(safeMsgid(shared + 'AAA')).not.toBe(safeMsgid(shared + 'BBB'));
+  expect(safeMsgid(shared)).toBe(shared);                                 // 恰 64 且干净 ⇒ 原样（未受损）
 });
 
 test('sanitizeName：正常名保留（safeMsgid 前缀）；路径穿越/控制字符/换行剥除；空白折叠；截断保扩展', () => {
   expect(sanitizeName('msg1', 'report.pdf', 'file')).toBe('msg1-report.pdf');
-  expect(sanitizeName('../evil', 'report.pdf', 'file')).toBe('.._evil-report.pdf');      // 恶意 msgid 消毒后入前缀
+  expect(sanitizeName('../evil', 'report.pdf', 'file')).toBe(`${safeMsgid('../evil')}-report.pdf`);  // 恶意 msgid 消毒后入前缀
   expect(sanitizeName('msg1', '../../etc/passwd', 'file')).toBe('msg1-etcpasswd.bin');  // 分隔符剥除（无 1-8 字母数字尾 ext ⇒ fallback ext）
   expect(sanitizeName('msg1', 'a/b\\c.png', 'image')).toBe('msg1-abc.png');
   expect(sanitizeName('msg1', 'bad\nname\r.png', 'image')).toBe('msg1-badname.png');    // 换行剥除（注入防线）
@@ -71,6 +78,34 @@ test('MediaStore.prune：30 天界（恰 30 天保留、31 天删除）；非日
   expect(errs[0]).toContain('2026-08-01');
   expect(existsSync(join(dir, 'uploads', '2026-08-01'))).toBe(true);                    // 失败目录仍在
   expect(store.prune(now)).toEqual(['2026-08-01']);                                     // 默认 removeDir 重试成功
+});
+
+test('MediaStore.prune 硬化（code-review C-F2）：日期形普通文件不动；无效日历日期（2026-02-30）不动', () => {
+  const dir = tmp();
+  const now = new Date(2026, 8, 13);
+  writeFileSync(join(dir, 'uploads', '2026-08-01'), 'stray file');                      // 日期形普通文件
+  mkdirSync(join(dir, 'uploads', '2026-02-30'), { recursive: true });                   // 无效日历——Date 归一到 3 月
+  const store = new MediaStore(join(dir, 'uploads'));
+  expect(store.prune(now)).toEqual([]);                                                 // 两者都不删
+  expect(existsSync(join(dir, 'uploads', '2026-08-01'))).toBe(true);
+  expect(existsSync(join(dir, 'uploads', '2026-02-30'))).toBe(true);
+});
+
+test('存储身份语义（code-review C-F1）：同 msgid 同名幂等覆盖；同 msgid 异名 = 新文件（不同投递内容）', () => {
+  const dir = tmp();
+  const store = new MediaStore(join(dir, 'uploads'));
+  const a = store.save('file', 'm1', Buffer.from('v1'), 'report.pdf');
+  store.save('file', 'm1', Buffer.from('v2'), 'report.pdf');
+  expect(readFileSync(a.absPath).toString()).toBe('v2');                                // 同 msgid 同名：幂等覆盖
+  const b = store.save('file', 'm1', Buffer.from('v3'), 'report-v2.pdf');               // 同 msgid 异名：独立文件
+  expect(b.absPath).not.toBe(a.absPath);
+  expect(existsSync(a.absPath)).toBe(true);
+  expect(readFileSync(b.absPath).toString()).toBe('v3');
+  expect(readdirSync(join(dir, 'uploads', localDate(new Date()))).length).toBe(2);
+  // 不同 msgid 消毒折叠（'a/b' vs 'a_b'）⇒ 哈希后缀保不同身份
+  const c1 = store.save('file', 'a/b', Buffer.from('x'), 'f.bin');
+  const c2 = store.save('file', 'a_b', Buffer.from('y'), 'f.bin');
+  expect(c1.absPath).not.toBe(c2.absPath);
 });
 
 test('prune：uploads 目录缺失（ENOENT）⇒ 静默空结果；读目录 IO 错误 ⇒ onError 留痕不抛', () => {
